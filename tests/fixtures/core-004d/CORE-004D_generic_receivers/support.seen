@@ -1,0 +1,15 @@
+class Text {
+    var unrelated: Int
+}
+
+class Holder<T> {
+    var value: T
+
+    fun get() r: T {
+        return this.value
+    }
+}
+
+fun makeHolder<T>(value: T) r: Holder<T> {
+    return Holder<T>{value: value}
+}

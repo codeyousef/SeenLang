@@ -1,0 +1,44 @@
+import compute.resource_geometry.{GpuBufferGeometry}
+import compute.limits.{GPU_MAX_MEMORY_BYTES}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun main() r: Int {
+    let memory = seen_memory_used_bytes()
+    let counts = [1 as UInt64, 2 as UInt64, 3 as UInt64, 7 as UInt64, 1023 as UInt64, GPU_MAX_MEMORY_BYTES]
+    let sizes = [1 as UInt64, 4 as UInt64, 8 as UInt64, 4 as UInt64, 8 as UInt64, 1 as UInt64]
+    let alignments = [1 as UInt64, 8 as UInt64, 16 as UInt64, 16 as UInt64, 256 as UInt64, 1048576 as UInt64]
+    let bytes = [1 as UInt64, 8 as UInt64, 24 as UInt64, 28 as UInt64, 8184 as UInt64, GPU_MAX_MEMORY_BYTES]
+    let allocated = [1 as UInt64, 8 as UInt64, 32 as UInt64, 32 as UInt64, 8192 as UInt64, GPU_MAX_MEMORY_BYTES]
+    var index = 0
+    while index < counts.length() {
+        let checked = GpuBufferGeometry.checked(counts[index], sizes[index], alignments[index])
+        if checked.isErr() { abort("valid typed buffer geometry rejected") }
+        let value = checked.unwrap(); checked.releaseContainer()
+        if value.elementCount != counts[index] or value.elementBytes != sizes[index] or
+            value.alignment != alignments[index] or value.byteLength != bytes[index] or
+            value.allocatedBytes != allocated[index] { abort("GPU buffer geometry disagrees with fixed alignment corpus") }
+        value.release(); index = index + 1
+    }
+    counts.free(); sizes.free(); alignments.free(); bytes.free(); allocated.free()
+    index = 0
+    while index < 9 {
+        var count = 1 as UInt64; var size = 1 as UInt64; var alignment = 16 as UInt64; var expected = "gpu.invalid"
+        if index == 0 { count = 0 as UInt64 }
+        if index == 1 { size = 0 as UInt64 }
+        if index == 2 { alignment = 0 as UInt64 }
+        if index == 3 { alignment = 3 as UInt64 }
+        if index == 4 { alignment = 2097152 as UInt64 }
+        if index == 5 { size = GPU_MAX_MEMORY_BYTES + (1 as UInt64); expected = "gpu.limit" }
+        if index == 6 { count = (1 as UInt64) << 63; expected = "gpu.limit" }
+        if index == 7 { size = (1 as UInt64) << 63; expected = "gpu.limit" }
+        if index == 8 { count = GPU_MAX_MEMORY_BYTES / (4 as UInt64) + (1 as UInt64); size = 4 as UInt64; expected = "gpu.limit" }
+        let checked = GpuBufferGeometry.checked(count, size, alignment)
+        if checked.isOkay() { abort("malformed or overflowing typed GPU geometry accepted") }
+        let error = checked.unwrapErr(); checked.releaseContainer()
+        if error.code != expected or error.retryable { abort("GPU geometry failure class changed") }
+        error.release(); index = index + 1
+    }
+    if seen_memory_used_bytes() != memory { abort("GPU buffer geometry leaked owned results") }
+    println("PASS: GPU-006B checked element multiplication unsigned ceilings and exact aligned boundary goldens")
+    return 0
+}

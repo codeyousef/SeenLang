@@ -1,0 +1,57 @@
+/// An independently owned copy of verified IR. Attach each construction prefix
+/// immediately so one module release also covers every later rejection path.
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrFunction, GpuIrBlock, GpuIrInstruction, GpuIrValidation, GpuIrDiagnostic}
+import codegen.gpu_ir_verify.{verifyGpuIr}
+import core.result.{Result, Ok, Err}
+
+fun gpuIrCloneDiagnostic(error: GpuIrDiagnostic) r: GpuIrValidation {
+    let validation = GpuIrValidation.create(); validation.reject(error.code, error.message, -1, -1, -1)
+    error.free(); return validation
+}
+fun cloneGpuIr(borrow source: GpuIrModule) r: Result<GpuIrModule, GpuIrValidation> {
+    let validation = verifyGpuIr(source)
+    if not validation.valid { return Err<GpuIrModule, GpuIrValidation>(validation) }; validation.release()
+    let created = GpuIrModule.create(source.name)
+    if created.isErr() {
+        let error = created.unwrapErr(); created.releaseContainer()
+        return Err<GpuIrModule, GpuIrValidation>(gpuIrCloneDiagnostic(error))
+    }
+    let module = created.unwrap(); created.releaseContainer()
+    module.requiredCapabilities = source.requiredCapabilities; module.sharedBytes = source.sharedBytes
+    module.requiresFaultBuffer = source.requiresFaultBuffer; var functionIndex = 0
+    while functionIndex < source.functions.length() {
+        let original = source.functions[functionIndex]
+        let made = GpuIrFunction.create(original.name, original.kernel, original.returnType)
+        if made.isErr() {
+            let error = made.unwrapErr(); made.releaseContainer(); module.release()
+            return Err<GpuIrModule, GpuIrValidation>(gpuIrCloneDiagnostic(error))
+        }
+        let function = made.unwrap(); made.releaseContainer(); module.functions.push(function)
+        function.workgroupX = original.workgroupX; function.workgroupY = original.workgroupY; function.workgroupZ = original.workgroupZ
+        function.registerCount = original.registerCount; function.localCount = original.localCount; function.line = original.line
+        var parameter = 0
+        while parameter < original.parameterTypes.length() { function.parameterTypes.push(original.parameterTypes[parameter]); parameter = parameter + 1 }
+        var blockIndex = 0
+        while blockIndex < original.blocks.length() {
+            let oldBlock = original.blocks[blockIndex]; let block = GpuIrBlock.create(oldBlock.parent, oldBlock.parentInstruction)
+            function.blocks.push(block); var index = 0
+            while index < oldBlock.instructions.length() {
+                let old = oldBlock.instructions[index]; let op = GpuIrInstruction.create(old.opcode, old.result, old.typeCode)
+                block.instructions.push(op); op.immediate = old.immediate; op.leftBlock = old.leftBlock; op.rightBlock = old.rightBlock
+                op.memoryScope = old.memoryScope; op.memoryOrder = old.memoryOrder; op.memorySpaces = old.memorySpaces
+                op.line = old.line; op.column = old.column; var operand = 0
+                while operand < old.operands.length() { op.operands.push(old.operands[operand]); operand = operand + 1 }
+                if old.text != "" and not op.setText(old.text) {
+                    let error = GpuIrValidation.create(); error.reject("E_GPU_IR_LIMIT", "cloned GPU text exceeds its byte limit", functionIndex, blockIndex, index)
+                    module.release(); return Err<GpuIrModule, GpuIrValidation>(error)
+                }
+                index = index + 1
+            }
+            blockIndex = blockIndex + 1
+        }
+        functionIndex = functionIndex + 1
+    }
+    let checked = verifyGpuIr(module)
+    if not checked.valid { module.release(); return Err<GpuIrModule, GpuIrValidation>(checked) }
+    checked.release(); return Ok<GpuIrModule, GpuIrValidation>(module)
+}

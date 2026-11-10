@@ -9,5 +9,6 @@ seen compile src/main.seen test_builtin
 ./test_builtin
 ```
 
-The shipped 0.22.9 CLI does not provide project-wide `build` or `test`
-subcommands; pass the source file to `check`, `run`, or `compile` explicitly.
+Pass the source file to `check`, `run`, or `compile` explicitly. Current 0.23.0
+development also provides canonical `seen test <project>`; published 0.22.11
+does not. Neither compiler provides the legacy project-wide `build` command.

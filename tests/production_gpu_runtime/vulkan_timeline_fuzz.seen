@@ -1,0 +1,46 @@
+import compute.vulkan_timeline.{gpuVkTimelineSupported}
+import compute.vulkan_abi.{gpuVkAllocate, gpuVkDrop}
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let allocated = gpuVkAllocate(24 as UInt64)
+    if allocated.isErr() { abort("timeline fuzz storage unavailable") }
+    let buffer = allocated.unwrap(); allocated.releaseContainer(); let warm = seen_memory_used_bytes()
+    let words = buffer.data as *UInt32; let wide = buffer.data as *UInt64
+    let started = seen_time_monotonic_nanos()
+    if started < (0 as Int64) { abort("timeline fuzz clock unavailable") }
+    var random = 1102 as UInt64; var cases = 0; var finished = false
+    while not finished {
+        random = random ^ (random << 13); random = random ^ (random >> 7); random = random ^ (random << 17)
+        words[0] = 1000207000 as UInt32; wide[1] = 0 as UInt64; words[4] = 0 as UInt32; buffer.byteLength = 24 as UInt64
+        let mode = cases % 7; var valid = mode < 2; var expected = mode == 1
+        if mode == 1 { words[4] = 1 as UInt32 }
+        if mode == 2 { words[4] = (random as UInt32) | (2 as UInt32) }
+        if mode == 3 { words[0] = (1000207000 as UInt32) ^ ((random as UInt32) | (1 as UInt32)) }
+        if mode == 4 { wide[1] = random | (1 as UInt64) }
+        if mode == 5 { buffer.byteLength = random % (24 as UInt64) }
+        if mode == 6 { buffer.byteLength = (25 as UInt64) + random % (64 as UInt64) }
+        let result = gpuVkTimelineSupported(buffer)
+        if result.isOkay() != valid { abort("timeline fuzz accepted corrupt SDK metadata or rejected a Boolean") }
+        if valid {
+            if result.unwrap() != expected { abort("timeline feature Boolean changed") }
+        } else {
+            let error = result.unwrapErr()
+            if error.code != "gpu.invalid" or error.retryable { abort("timeline fuzz diagnostic changed") }
+            error.release()
+        }
+        result.releaseContainer(); cases = cases + 1
+        if cases % 1024 == 0 {
+            if seen_memory_used_bytes() != warm { abort("timeline fuzz result leaked") }
+            let now = seen_time_monotonic_nanos()
+            if now < started { abort("timeline fuzz clock regressed") }
+            finished = now - started >= (60000000000 as Int64)
+        }
+        if cases >= 1000000000 and not finished { abort("timeline fuzz exhausted its finite fuel") }
+    }
+    buffer.byteLength = 24 as UInt64; gpuVkDrop(buffer)
+    if seen_memory_used_bytes() != baseline { abort("timeline fuzz storage leaked") }
+    println("PASS: GPU-006C timeline feature metadata fuzz 60s seed=1102 preserves bounds and ownership")
+    println(cases)
+    return 0
+}

@@ -1,0 +1,75 @@
+/// Portable word arithmetic with no LLVM overflow or fast-math promises.
+/// Exceptional divisors and shifts are replaced before native evaluation;
+/// the result becomes zero and the portable fault bit is set afterward.
+import codegen.gpu.amdgpu_context.{GpuAmdFunction}
+import typechecker.gpu_types.{gpuTypeScalar, gpuTypeLanes}
+
+fun amdBinaryOpcode(operation: Int, scalar: Int) r: String {
+    if operation == 1 { if scalar == 4 { return "fadd" }; return "add" }
+    if operation == 2 { if scalar == 4 { return "fsub" }; return "sub" }
+    if operation == 3 { if scalar == 4 { return "fmul" }; return "mul" }
+    if operation == 4 { if scalar == 4 { return "fdiv" }; if scalar == 2 { return "sdiv" }; return "udiv" }
+    if operation == 5 { if scalar == 2 { return "srem" }; return "urem" }
+    if operation == 6 { return "and" }; if operation == 7 { return "or" }; if operation == 8 { return "xor" }
+    if operation == 9 { return "shl" }; if operation == 10 { if scalar == 2 { return "ashr" }; return "lshr" }; return ""
+}
+fun amdComparePredicate(operation: Int, scalar: Int) r: String {
+    if scalar == 4 {
+        if operation == 11 { return "oeq" }; if operation == 12 { return "une" }
+        if operation == 13 { return "olt" }; if operation == 14 { return "ole" }; if operation == 15 { return "ogt" }; if operation == 16 { return "oge" }
+    } else {
+        if operation == 11 { return "eq" }; if operation == 12 { return "ne" }
+        if scalar == 2 {
+            if operation == 13 { return "slt" }; if operation == 14 { return "sle" }; if operation == 15 { return "sgt" }; if operation == 16 { return "sge" }
+        } else {
+            if operation == 13 { return "ult" }; if operation == 14 { return "ule" }; if operation == 15 { return "ugt" }; if operation == 16 { return "uge" }
+        }
+    }; return ""
+}
+fun amdArithmeticInvalid(function: GpuAmdFunction, operation: Int, scalar: Int, left: Int, right: Int) r: Int {
+    if operation == 9 or operation == 10 { return function.compare("uge", right, function.word(32), false) }
+    var divisor = right
+    if scalar == 4 { divisor = function.allocate(1); function.binary("and", divisor, right, function.word(2147483647)) }
+    var invalid = function.compare("eq", divisor, function.word(0), false)
+    if scalar == 2 {
+        let minimum = function.compare("eq", left, function.word(2147483648), false)
+        let minusOne = function.compare("eq", right, function.word(-1), false)
+        let overflow = function.predicateBinary("and", minimum, minusOne); invalid = function.predicateBinary("or", invalid, overflow)
+    }; return invalid
+}
+fun amdCheckedArithmetic(function: GpuAmdFunction, operation: Int, scalar: Int, destination: Int, left: Int, right: Int) r: Void {
+    let invalid = amdArithmeticInvalid(function, operation, scalar, left, right); let safe = function.allocate(1)
+    var replacement = 1; if operation == 9 or operation == 10 { replacement = 0 } else if scalar == 4 { replacement = 1065353216 }
+    function.select(safe, function.word(replacement), right, invalid)
+    let opcode = amdBinaryOpcode(operation, scalar)
+    if scalar == 4 { function.floatBinary(opcode, destination, left, safe) } else { function.binary(opcode, destination, left, safe) }
+    function.select(destination, function.word(0), destination, invalid); function.faultWhen(invalid, 2)
+}
+fun amdBinary(function: GpuAmdFunction, operation: Int, typeCode: Int, left: Int, right: Int) r: Int {
+    let scalar = gpuTypeScalar(typeCode); let lanes = gpuTypeLanes(typeCode)
+    if operation >= 11 {
+        let predicate = amdComparePredicate(operation, scalar)
+        if predicate == "" or lanes != 1 { function.error("E_GPU_AMDGPU_TYPE", "AMDGPU comparison lacks a scalar plan"); return 0 }
+        let condition = function.compare(predicate, left, right, scalar == 4); let result = function.allocate(1); function.boolean(result, condition); return result
+    }
+    let opcode = amdBinaryOpcode(operation, scalar)
+    if opcode == "" { function.error("E_GPU_AMDGPU_TYPE", "AMDGPU arithmetic identity is unsupported"); return 0 }
+    let result = function.allocate(lanes); var lane = 0
+    while lane < lanes {
+        if operation == 4 or operation == 5 or operation == 9 or operation == 10 {
+            amdCheckedArithmetic(function, operation, scalar, result + lane, left + lane, right + lane)
+        } else if scalar == 4 { function.floatBinary(opcode, result + lane, left + lane, right + lane) }
+        else { function.binary(opcode, result + lane, left + lane, right + lane) }; lane = lane + 1
+    }; return result
+}
+fun amdUnary(function: GpuAmdFunction, operation: Int, typeCode: Int, value: Int) r: Int {
+    let result = function.allocate(gpuTypeLanes(typeCode)); var lane = 0
+    while lane < gpuTypeLanes(typeCode) {
+        if operation == 1 {
+            if gpuTypeScalar(typeCode) == 4 { function.binary("xor", result + lane, value + lane, function.word(2147483648)) }
+            else { function.binary("sub", result + lane, function.word(0), value + lane) }
+        } else if operation == 2 { function.binary("xor", result + lane, value + lane, function.word(1)) }
+        else if operation == 3 { function.binary("xor", result + lane, value + lane, function.word(-1)) }
+        else { function.error("E_GPU_AMDGPU_TYPE", "AMDGPU unary identity is unsupported"); return 0 }; lane = lane + 1
+    }; return result
+}

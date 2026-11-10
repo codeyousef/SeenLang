@@ -1,0 +1,60 @@
+/// A failed index records a fault and executes no data atomic. Scoped native
+/// operations retain source ordering; SC fences strengthen sequential cases.
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_ir_ops.{GPU_IR_ATOMIC_LOAD, GPU_IR_ATOMIC_STORE, GPU_IR_ATOMIC_COMPARE}
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
+import codegen.gpu.ptx_context.{GpuPtxFunction}
+import codegen.gpu.ptx_memory.{ptxResourceIndex, ptxInvalidMemoryIndex, ptxMemoryAddress}
+import codegen.gpu.ptx_memory_plan.{ptxMemoryOrder, ptxMemoryScope, ptxMemoryFence, ptxAtomicOperation}
+import typechecker.gpu_types.{gpuTypeValue}
+
+fun ptxAtomic(function: GpuPtxFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Int {
+    let resourceIndex = ptxResourceIndex(function, frame, op.operands[0]); if resourceIndex < 0 { return 0 }
+    let resource = function.resources[resourceIndex]
+    let scope = ptxMemoryScope(op.memoryScope); var order = ptxMemoryOrder(op.memoryOrder)
+    if scope == "" or order == "" { function.error("E_GPU_PTX_MEMORY", "PTX atomic scope or order is unsupported"); return 0 }
+    if op.memoryOrder == 5 {
+        if op.opcode == GPU_IR_ATOMIC_LOAD { order = "acquire" }
+        if op.opcode == GPU_IR_ATOMIC_STORE { order = "release" }
+    }
+    var operation = ""; var representation = "u32"
+    if op.opcode == GPU_IR_ATOMIC_COMPARE { operation = "cas"; representation = "b32" }
+    else if op.opcode != GPU_IR_ATOMIC_LOAD and op.opcode != GPU_IR_ATOMIC_STORE {
+        operation = ptxAtomicOperation(op.immediate)
+        if operation == "" { function.error("E_GPU_PTX_MEMORY", "PTX atomic operation is unsupported"); return 0 }
+        if op.immediate == 1 or op.immediate >= 6 { representation = "b32" }
+        else if (op.immediate == 4 or op.immediate == 5) and gpuTypeValue(resource.typeCode) == 2 { representation = "s32" }
+    }
+    var result = 0
+    if op.opcode != GPU_IR_ATOMIC_STORE {
+        result = function.allocate(0, 1); function.body.unary("mov.b32", result, function.word(0))
+    }
+    let bad = function.allocate(3, 1); let merge = function.allocate(3, 1); let index = op.operands[1]
+    let invalid = ptxInvalidMemoryIndex(function, resource, frame.registers[index], frame.registerTypes[index])
+    function.body.conditional(invalid, bad)
+    let address = ptxMemoryAddress(function, resource, frame.registers[index]); var value = 0
+    if op.opcode != GPU_IR_ATOMIC_LOAD {
+        value = frame.registers[op.operands[2]]
+        if op.opcode != GPU_IR_ATOMIC_COMPARE and op.immediate == 3 {
+            let negated = function.allocate(0, 1); function.body.unary("neg.s32", negated, value); value = negated
+        }
+    }
+    if op.memoryOrder == 5 { ptxMemoryFence(function, op.memoryScope, true) }
+    if op.opcode == GPU_IR_ATOMIC_LOAD { function.body.literal("ld.") }
+    else if op.opcode == GPU_IR_ATOMIC_STORE { function.body.literal("st.") }
+    else { function.body.literal("atom.") }
+    function.body.literal(order); function.body.literal("."); function.body.literal(scope)
+    if resource.shared { function.body.literal(".shared.") } else { function.body.literal(".global.") }
+    if operation != "" { function.body.literal(operation); function.body.literal(".") }
+    function.body.literal(representation); function.body.literal(" ")
+    if op.opcode != GPU_IR_ATOMIC_STORE { function.body.reg("r", result); function.body.literal(", ") }
+    function.body.literal("["); function.body.reg("a", address); function.body.literal("]")
+    if op.opcode != GPU_IR_ATOMIC_LOAD { function.body.literal(", "); function.body.reg("r", value) }
+    if op.opcode == GPU_IR_ATOMIC_COMPARE {
+        function.body.literal(", "); function.body.reg("r", frame.registers[op.operands[3]])
+    }
+    function.body.literal(";\n")
+    if op.memoryOrder == 5 { ptxMemoryFence(function, op.memoryScope, true) }
+    function.body.branch(merge); function.body.defineLabel(bad); function.fault(1); function.body.defineLabel(merge)
+    return result
+}

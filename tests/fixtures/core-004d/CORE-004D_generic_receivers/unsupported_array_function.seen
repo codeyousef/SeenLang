@@ -1,0 +1,12 @@
+fun identity<T>(value: T) r: T {
+    return value
+}
+
+fun main() r: Int {
+    let values = Array<Int>()
+    values.push(17)
+    let returned = identity<Array<Int>>(values)
+    if returned[0] != 17 { return 1 }
+    returned.free()
+    return 0
+}

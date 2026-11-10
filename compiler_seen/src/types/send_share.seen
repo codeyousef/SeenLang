@@ -86,7 +86,11 @@ fun sendShareFoundationContract(typeName: String) r: SendShareContract {
         return sendShareContract(SEND_SHARE_PROVED, SEND_SHARE_REJECTED,
             true, true, "owned resource must be moved to one destination")
     }
-    if sendShareCanonicalType(base, "seen_std.src.sync.arc", "Arc") or
+    if sendShareCanonicalType(base, "seen_std.src.async.wait_group", "AsyncWaitGroup") or
+        sendShareCanonicalType(base, "seen_std.src.async.barrier", "AsyncBarrier") or
+        sendShareCanonicalType(base, "seen_std.src.async.queue", "AsyncQueue") or
+        sendShareCanonicalType(base, "seen_std.src.async.reduction", "AsyncIntReduction") or
+        sendShareCanonicalType(base, "seen_std.src.sync.arc", "Arc") or
         sendShareCanonicalType(base, "seen_std.src.sync.atomic", "Atomic") or
         sendShareCanonicalType(base, "seen_std.src.sync.atomic",
             "AtomicInt") or
@@ -100,9 +104,7 @@ fun sendShareFoundationContract(typeName: String) r: SendShareContract {
         return sendShareContract(SEND_SHARE_PROVED, SEND_SHARE_PROVED,
             false, true, "synchronized shared foundation value")
     }
-    if sendShareCanonicalType(base, "seen_std.src.reactor.reactor",
-            "BlockingCompletion") or
-        sendShareCanonicalType(base, "seen_std.src.io.direct",
+    if sendShareCanonicalType(base, "seen_std.src.io.direct",
             "GatherCompletion") {
 
         return sendShareContract(SEND_SHARE_PROVED, SEND_SHARE_REJECTED,

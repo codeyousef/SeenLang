@@ -1,0 +1,8 @@
+import move_job_witness_support.{MoveJob}
+import async.executor_core.{ExecutorOwnedJob, executorCaptureWitness}
+fun main() r: Int {
+    let job = MoveJob{number: 7}
+    let witness = executorCaptureWitness(job)
+    let bound = ExecutorOwnedJob<MoveJob>.bind(job, witness)
+    return job.number
+}

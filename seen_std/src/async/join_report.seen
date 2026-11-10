@@ -1,0 +1,41 @@
+import core.option.{Option, Some, None}
+import core.result.{Result, Ok, Err}
+import sync.contracts.{Send}
+import async.structured.{AsyncError}
+import async.executor_core.{ExecutorJob, ExecutorOwnedJob, executorFailure}
+import async.task_diagnostics.{TaskDiagnostic}
+
+// Successful task ownership and diagnostics outlive the executor ticket.
+// release consumes any result the coordinator has not explicitly taken.
+@move
+class ExecutorJoinReport<T: Send + ExecutorJob> {
+    var task: Option<ExecutorOwnedJob<T>>
+    var error: Option<AsyncError>
+    var diagnostic: Option<TaskDiagnostic>
+    var fallback: Option<TaskDiagnostic>
+    var progress: UInt64
+
+    fun takeTask() r: Result<T, AsyncError> {
+        if this.task.isNone() {
+            return Err<T, AsyncError>(executorFailure(1 as Int32, "task.report.take", this.progress))
+        }
+        let task = this.task.unwrap(); this.task.free(); this.task = None<ExecutorOwnedJob<T>>()
+        return Ok<T, AsyncError>(task.take())
+    }
+    fun takeError() r: Result<AsyncError, AsyncError> {
+        if this.error.isNone() {
+            return Err<AsyncError, AsyncError>(executorFailure(1 as Int32, "task.report.error", this.progress))
+        }
+        let error = this.error.unwrap(); this.error.free(); this.error = None<AsyncError>()
+        return Ok<AsyncError, AsyncError>(error)
+    }
+    fun release() r: Void {
+        if this.task.isSome() {
+            if not this.task.unwrap().release() { abort("unclaimed task report destructor failed") }
+        }
+        if this.error.isSome() { this.error.unwrap().free() }
+        if this.diagnostic.isSome() { this.diagnostic.unwrap().release() }
+        if this.fallback.isSome() { this.fallback.unwrap().release() }
+        this.task.free(); this.error.free(); this.diagnostic.free(); this.fallback.free(); this.free()
+    }
+}

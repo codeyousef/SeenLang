@@ -1,0 +1,48 @@
+import device_fixture_support.{report, operation, releaseOperation, gpuFixtureRejected}
+import provider_fixture_support.{newProviderCounts, provider, opened, created, rejectedContext, completed, leased}
+import compute.device.{GpuDevice}
+import compute.context_lease.{GpuContextLease}
+import compute.limits.{GpuLimits}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun main() r: Int {
+    let memory = seen_memory_used_bytes(); let context = operation()
+    let counts = newProviderCounts(); let limits = GpuLimits.bounded(2, 2, 16, 4096 as UInt64)
+    let baseline = seen_memory_used_bytes(); var index = 0
+    while index < 10000 {
+        let device = opened(GpuDevice.open(provider(counts, context), report(), limits))
+        let first = created(device.createContext(context)); let second = created(device.createContext(context))
+        let firstLease = leased(GpuContextLease.acquire(first, context))
+        let secondLease = leased(GpuContextLease.acquire(second, context))
+        gpuFixtureRejected(first.close(), "gpu.busy")
+        completed(firstLease.close(), true)
+        rejectedContext(device.createContext(context), "gpu.limit")
+        gpuFixtureRejected(device.close(), "gpu.busy")
+        if index % 7 == 0 {
+            counts.failDestroy = 1
+            gpuFixtureRejected(first.close(), "gpu.unavailable")
+            if not first.active or counts.live != 2 { abort("stress cleanup failure detached ownership") }
+        }
+        completed(first.close(), true); completed(secondLease.close(), true); completed(second.release(), true)
+        if index % 4 == 0 {
+            counts.late = true; counts.failDestroy = 1
+            rejectedContext(device.createContext(context), "gpu.timeout")
+            if counts.live != 1 or device.core.borrowers != 0 { abort("stress late result lost device ownership") }
+            counts.late = false
+        }
+        completed(device.release(), true); completed(first.release(), true)
+        completed(firstLease.release(), true); completed(secondLease.release(), true)
+        context.monotonicDeadline = 9223372036854775807 as Int64
+        if counts.live != 0 or seen_memory_used_bytes() != baseline {
+            abort("GPU repeated lifecycle leaked native or Seen resources")
+        }
+        index = index + 1
+    }
+    if counts.creates != 22500 or counts.destroys != 22500 or counts.releases != 10000 {
+        abort("GPU lifecycle native-call oracle diverged")
+    }
+    counts.free(); limits.release(); releaseOperation(context)
+    if seen_memory_used_bytes() != memory { abort("GPU stress fixture cleanup leaked") }
+    println("PASS: GPU-006A 10000 lifecycle cycles and 22500 native tokens restore every allocation baseline")
+    return 0
+}

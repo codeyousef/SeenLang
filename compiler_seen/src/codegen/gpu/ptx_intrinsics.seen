@@ -1,0 +1,32 @@
+/// Comparison/select implements the shared min/max/clamp NaN and signed-zero
+/// rules; native min/max opcodes have different NaN selection semantics.
+import codegen.gpu.ptx_context.{GpuPtxFunction}
+import codegen.gpu.ptx_math.{ptxCompareOpcode}
+import typechecker.gpu_types.{gpuTypeScalar, gpuTypeLanes}
+fun ptxSelectExtremum(function: GpuPtxFunction, destination: Int, left: Int, right: Int, typeCode: Int, maximum: Bool) r: Void {
+    var comparison = 13; if maximum { comparison = 15 }; let predicate = function.allocate(2, 1)
+    function.body.predicate(ptxCompareOpcode(comparison, gpuTypeScalar(typeCode)), predicate, right, left)
+    function.body.select(destination, right, left, predicate)
+}
+fun ptxIntrinsic(function: GpuPtxFunction, operation: Int, typeCode: Int, arguments: Array<Int>) r: Int {
+    let lanes = gpuTypeLanes(typeCode); let scalar = gpuTypeScalar(typeCode); let result = function.allocate(0, lanes); var lane = 0
+    while lane < lanes {
+        if operation == 1 or operation == 2 { ptxSelectExtremum(function, result + lane, arguments[0] + lane, arguments[1] + lane, typeCode, operation == 2) }
+        else if operation == 3 {
+            let lower = function.allocate(0, 1); let predicate = function.allocate(2, 1)
+            function.body.predicate(ptxCompareOpcode(13, scalar), predicate, arguments[0] + lane, arguments[1] + lane)
+            function.body.select(lower, arguments[1] + lane, arguments[0] + lane, predicate)
+            function.body.predicate(ptxCompareOpcode(15, scalar), predicate, lower, arguments[2] + lane)
+            function.body.select(result + lane, arguments[2] + lane, lower, predicate)
+        } else if operation == 4 {
+            if scalar == 4 { function.body.binary("and.b32", result + lane, arguments[0] + lane, function.word(2147483647)) }
+            else if scalar == 3 { function.body.unary("mov.b32", result + lane, arguments[0] + lane) }
+            else {
+                let predicate = function.allocate(2, 1); let opposite = function.allocate(0, 1)
+                function.body.predicate("setp.lt.s32", predicate, arguments[0] + lane, function.word(0))
+                function.body.unary("neg.s32", opposite, arguments[0] + lane); function.body.select(result + lane, opposite, arguments[0] + lane, predicate)
+            }
+        } else if operation == 5 { function.body.unary("sqrt.rn.f32", result + lane, arguments[0] + lane) }
+        else { function.error("E_GPU_PTX_CAPABILITY", "PTX intrinsic identity is unsupported"); return 0 }; lane = lane + 1
+    }; return result
+}

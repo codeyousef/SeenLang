@@ -30,6 +30,7 @@ import codegen.ir_method_static_driver.{tryGenerateStaticMethodCallState}
 import codegen.ir_path_expr.{splitChainedPathImpl, buildChainedPathExprImpl}
 import codegen.ir_receiver_method_emit.{emitSimdReductionImpl}
 import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
+import codegen.ir_module_function_identity.{resolveModuleFreeFunctionSymbolImpl}
 
 fun prepareMethodCallArgRegsAndTypesState(ctx: CodegenLoweringContext,
     args: Array<ParserExpressionNode>, argRegs: Array<String>,
@@ -73,6 +74,10 @@ fun generateMethodCallState(ctx: CodegenLoweringContext,
     varTypes: Array<String>, stringConstants: Array<String>) r: String {
 
     let methodName = expr.callee
+    if expr.literalValue == "" and expr.operands.length() == 0 and
+        findActiveVariableIndexWithGlobalStateImpl(varNames, methodName) >= 0 {
+        return lowerCallExpression(ctx, expr)
+    }
     var receiverReg: String = ""
     var receiverType: String = "String"
     let receiverPhasePlan = planMethodReceiverInitialPhaseImpl(
@@ -282,7 +287,8 @@ fun generateMethodCallState(ctx: CodegenLoweringContext,
                 methodName)
         }
         let unresolvedFunctionRetType = getFunctionReturnTypeStateImpl(
-            methodName, getGlobalFuncNamesImpl(), getGlobalFuncRetTypesImpl())
+            resolveModuleFreeFunctionSymbolImpl(methodName),
+            getGlobalFuncNamesImpl(), getGlobalFuncRetTypesImpl())
         let unresolvedFinalPlan = planMethodUnresolvedReceiverFinalImpl(
             receiverReg, activeClassName, implicitMethodRetType,
             unresolvedFunctionRetType,

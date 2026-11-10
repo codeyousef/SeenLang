@@ -1,0 +1,41 @@
+import ir_fixture_support.{irRequire}
+import ir_lowering_support.{irLowerSource}
+import ir_scalar_state.{IrScalarState}
+import ir_scalar_machine.{runIrScalarWitness}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun main() r: Int {
+    let module = irLowerSource("@device fun increment(value: Int32) r: Int32 { return value + 1 } @compute(1) fun observed(output: WriteBuffer<Int32>) { let scratch: SharedBuffer<Int32> = sharedBuffer(4); for i in 0..4 { let previous = atomicAdd(scratch, i, 1, Relaxed, WorkgroupScope) }; let old = atomicCompareExchange(scratch, 0, 1, 7, AcquireRelease, Acquire, WorkgroupScope); barrier(WorkgroupScope, AcquireRelease, WorkgroupMemory); var j = 0; while j < 4 { output[j] = increment(atomicLoad(scratch, j, Acquire, WorkgroupScope)); j = j + 1 }; output[4] = old; output[5] = 2147483647 + 1 }")
+    let baseline = seen_memory_used_bytes(); var iteration = 0
+    while iteration < 100 {
+        let state = IrScalarState.create(); let output = [0, 0, 0, 0, 0, 0]; irRequire(state.addBuffer(output) == 0)
+        let arguments = [0]; irRequire(runIrScalarWitness(module, state, 1, arguments)); arguments.free()
+        irRequire(output[0] == 8 and output[1] == 2 and output[2] == 2 and output[3] == 2 and output[4] == 1 and output[5] == -2147483648)
+        irRequire(state.barriers == 1 and state.faults == 0); state.release()
+        irRequire(seen_memory_used_bytes() == baseline); iteration = iteration + 1
+    }
+    module.release()
+    println("PASS: GPU-001B scalar witness executes parsed loops helpers atomics wrapping and cleanup")
+    let logical = irLowerSource("@compute(1) fun lazy(input: ReadBuffer<Int32>, output: WriteBuffer<Int32>) { let x = false and input[99] > 0; let y = true or input[-1] > 0; if not x and y { output[0] = 42 }; output[9] = 5; output[1] = input[99]; output[2] = 1 / 0 }")
+    let state = IrScalarState.create(); let input = [7]; let output = [0, 0, 0]
+    irRequire(state.addBuffer(input) == 0 and state.addBuffer(output) == 1)
+    let arguments = [0, 1]; irRequire(runIrScalarWitness(logical, state, 0, arguments)); arguments.free()
+    irRequire(output[0] == 42 and output[1] == 0 and output[2] == 0 and state.faults == 3)
+    state.release(); logical.release()
+    println("PASS: GPU-001B scalar witness preserves short circuit effects and checked fault progress")
+    let wide = irLowerSource("@compute(64) fun wide() { }")
+    let wideState = IrScalarState.create(); let empty = Array<Int>()
+    irRequire(not runIrScalarWitness(wide, wideState, 0, empty) and wideState.code == "witness.unsupported")
+    wideState.release(); wide.release()
+    let floating = irLowerSource("@compute(1) fun floating(output: WriteBuffer<Float32>) { output[0] = 1.0 }")
+    let floatState = IrScalarState.create(); let binding = [0]
+    irRequire(not runIrScalarWitness(floating, floatState, 0, binding) and floatState.code == "witness.unsupported")
+    binding.free(); floatState.release(); floating.release()
+    let forever = irLowerSource("@compute(1) fun forever() { while true { } }")
+    let limited = IrScalarState.create(); limited.remaining = 10
+    irRequire(not runIrScalarWitness(forever, limited, 0, empty) and limited.code == "witness.limit")
+    limited.release(); forever.release(); empty.free()
+    println("PASS: GPU-001B scalar witness rejects unsupported geometry values and exhausted budgets")
+    println("{\"schema\":\"seen-gpu-ir-scalar-witness-v1\",\"scope\":\"single-invocation-integer-model\",\"hardware_verified\":false,\"gpu_execution_verified\":false}")
+    return 0
+}

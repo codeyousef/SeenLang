@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROOT_DIR="$(cd -P -- "${BASH_SOURCE[0]%/*}/../.." && pwd -P)"
+CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
+SCOPE=seen-executor-native-abi
+if [ "${SEEN_CAPPED_PLATFORM_REGRESSION_ACTIVE:-0}" != 1 ]; then
+    exec bash "$CAPPED_ENTRY" --platform "$SCOPE" -- bash "$0"
+fi
+bash "$CAPPED_ENTRY" --verify-platform-active "$SCOPE"
+TMP_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/executor-native.XXXXXX")"
+source "$ROOT_DIR/scripts/report_fixture_failure_logs.sh"
+cleanup() {
+    local status=$?
+    if [ "$status" -eq 0 ] && [ -z "${SEEN_KEEP_TMP:-}" ]; then
+        case "$TMP_DIR" in
+            "$SEEN_ARTIFACT_ROOT"/executor-native.*) rm -rf -- "$TMP_DIR" ;;
+            *) status=1 ;;
+        esac
+    else
+        echo "Preserved executor artifacts: $TMP_DIR" >&2
+        seen_report_fixture_failure_logs "$TMP_DIR"
+    fi
+    exit "$status"
+}
+trap cleanup EXIT
+
+run_probe() {
+    local name=$1
+    local sanitizer=$2
+    shift 2
+    local flags=()
+    if [ -n "$sanitizer" ]; then flags+=("-fsanitize=$sanitizer"); fi
+    local label="${name}-${sanitizer:-native}"
+    local log="$TMP_DIR/$label.compile.log"
+    (
+        set -x
+        clang -std=c11 -O1 -g -pthread -ffunction-sections -fdata-sections \
+            -I "$ROOT_DIR/seen_runtime" "${flags[@]}" "$@" \
+            -Wl,--gc-sections -lm -ldl -o "$TMP_DIR/$label"
+    ) >"$log" 2>&1
+    (
+        cd -- "$TMP_DIR"
+        if [ "$sanitizer" = address ]; then
+            bash "$ROOT_DIR/scripts/run_asan_in_hard_memory_scope.sh" \
+                --target-root "$TMP_DIR" --compile-log "$log" -- "$TMP_DIR/$label"
+        else
+            timeout --foreground --kill-after=5s 120s "$TMP_DIR/$label"
+        fi
+    )
+}
+
+for sanitizer in '' undefined address; do
+    run_probe threads "$sanitizer" -Wall -Wextra -Werror \
+        -DSEEN_EXECUTOR_THREAD_SLOTS=4 \
+        "$ROOT_DIR/tests/compiler_regressions/executor_abi_contract.c" \
+        "$ROOT_DIR/seen_runtime/src/executor_abi.c" -Wl,--wrap=pthread_create
+    run_probe placement "$sanitizer" -Wall -Wextra -Werror \
+        "$ROOT_DIR/tests/compiler_regressions/executor_placement_contract.c" \
+        "$ROOT_DIR/seen_runtime/src/executor_abi.c" \
+        -Wl,--wrap=sched_getaffinity -Wl,--wrap=sched_setaffinity -Wl,--wrap=syscall
+    run_probe datagrams "$sanitizer" -Wall -Wextra -Werror \
+        "$ROOT_DIR/tests/compiler_regressions/executor_datagram_contract.c" \
+        "$ROOT_DIR/seen_runtime/src/executor_socket_abi.c"
+    run_probe streams "$sanitizer" -Wall -Wextra -Werror \
+        "$ROOT_DIR/tests/compiler_regressions/executor_stream_contract.c" \
+        "$ROOT_DIR/seen_runtime/src/executor_stream_abi.c"
+    run_probe processes "$sanitizer" -Wall -Wextra -Werror \
+        "$ROOT_DIR/tests/compiler_regressions/executor_process_contract.c" \
+        "$ROOT_DIR/seen_runtime/src/executor_process_abi.c" \
+        "$ROOT_DIR/seen_runtime/src/executor_stream_abi.c"
+    run_probe completion-file "$sanitizer" -Wall -Wextra \
+        "$ROOT_DIR/tests/compiler_regressions/executor_completion_file_contract.c" \
+        "$ROOT_DIR/seen_runtime/seen_runtime.c"
+    run_probe readiness "$sanitizer" -Wall -Wextra -Werror \
+        "$ROOT_DIR/tests/compiler_regressions/executor_readiness_contract.c" \
+        "$ROOT_DIR/seen_runtime/src/executor_readiness_abi.c" \
+        "$ROOT_DIR/seen_runtime/reactor_abi.c" -Wl,--wrap=close
+    run_probe completion "$sanitizer" -Wall -Wextra -Werror \
+        "$ROOT_DIR/tests/compiler_regressions/executor_completion_contract.c" \
+        "$ROOT_DIR/seen_runtime/src/executor_completion_abi.c" \
+        -Wl,--wrap=syscall -Wl,--wrap=fcntl
+    run_probe sockets "$sanitizer" -Wall -Wextra -Werror \
+        "$ROOT_DIR/tests/compiler_regressions/executor_socket_contract.c" \
+        "$ROOT_DIR/seen_runtime/src/executor_socket_abi.c"
+    run_probe allocator "$sanitizer" \
+        "$ROOT_DIR/tests/compiler_regressions/executor_allocator_contract.c" \
+        "$ROOT_DIR/seen_runtime/seen_runtime.c"
+done
+
+# TSan needs a separate virtual-address policy on some hosts. Opt in on the
+# certification host; a missing TSan run is not represented as a pass.
+if [ "${SEEN_EXECUTOR_TSAN:-0}" = 1 ]; then
+    run_probe allocator thread \
+        "$ROOT_DIR/tests/compiler_regressions/executor_allocator_contract.c" \
+        "$ROOT_DIR/seen_runtime/seen_runtime.c"
+fi
+echo "PASS: fixed-worker native resource contracts"

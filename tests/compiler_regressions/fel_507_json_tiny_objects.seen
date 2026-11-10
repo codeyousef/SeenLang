@@ -287,7 +287,12 @@ fun main() r: Int {
         inputLimited.error != "JSON input limit exceeded" { return 111 }
     destroyJsonParseResult(inputLimited, false)
 
-    let depthLimited = parseJsonWithLimits("{\"nested\":{}}", 32, 1, 8)
+    let nestedSource = "{{\"nested\":{{}}}}"
+    if nestedSource.length() != 13 { return 140 }
+    let nestedSuccess = parseJsonWithLimits(nestedSource, 32, 2, 8)
+    if nestedSuccess.success != 1 { return 141 }
+    destroyJsonParseResult(nestedSuccess, true)
+    let depthLimited = parseJsonWithLimits(nestedSource, 32, 1, 8)
     if depthLimited.success != 0 or
         depthLimited.error != "JSON nesting limit exceeded" { return 112 }
     destroyJsonParseResult(depthLimited, false)

@@ -35,6 +35,26 @@ fun policy(path: String) r: BuildInstrumentationPolicy {
     }
 }
 
+fun armSanitizerPolicy(sanitizer: String, coverage: Bool)
+    r: BuildInstrumentationPolicy {
+
+    return BuildInstrumentationPolicy{
+        debugInfo: true,
+        coverage: coverage,
+        sanitizer: sanitizer,
+        target: "linux-arm64",
+        reportPath: "reports/arm.json"
+    }
+}
+
+fun armInstrumentationDenied(sanitizer: String, coverage: Bool) r: Bool {
+    let checked = validateBuildInstrumentation(
+        armSanitizerPolicy(sanitizer, coverage),
+        instrumentationContext(false, 4096))
+    return checked.isErr() and
+        checked.unwrapErr().code.value == "core.rel.002.platform"
+}
+
 fun main() r: Int {
     let happy = validateBuildInstrumentation(policy("reports/build.json"),
         instrumentationContext(false, 4096))
@@ -99,6 +119,36 @@ fun main() r: Int {
         return 7
     }
     println("PASS: CORE-REL-002_cleanup")
+    let armAddress = validateBuildInstrumentation(
+        armSanitizerPolicy("address", false), instrumentationContext(false, 4096))
+    let armUndefined = validateBuildInstrumentation(
+        armSanitizerPolicy("undefined", false), instrumentationContext(false, 4096))
+    if armAddress.isErr() or armUndefined.isErr() { return 8 }
+    let addressPolicy = armAddress.unwrap()
+    let undefinedPolicy = armUndefined.unwrap()
+    if addressPolicy.target != "linux-arm64" or addressPolicy.coverage or
+        addressPolicy.sanitizer != "address" or
+        undefinedPolicy.target != "linux-arm64" or undefinedPolicy.coverage or
+        undefinedPolicy.sanitizer != "undefined" {
+
+        return 9
+    }
+    if not armInstrumentationDenied("address", true) or
+        not armInstrumentationDenied("undefined", true) or
+        not armInstrumentationDenied("thread", false) or
+        not armInstrumentationDenied("memory", false) or
+        not armInstrumentationDenied("", false) {
+
+        return 10
+    }
+    let unknownArm = validateBuildInstrumentation(
+        armSanitizerPolicy("unknown", false), instrumentationContext(false, 4096))
+    if not unknownArm.isErr() or
+        unknownArm.unwrapErr().code.value != "core.rel.002.invalid" {
+
+        return 11
+    }
+    println("PASS: CORE-REL-002_ARM_SANITIZERS")
     return 0
 }
 

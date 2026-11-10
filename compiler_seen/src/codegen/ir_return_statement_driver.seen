@@ -5,7 +5,7 @@ import str.string.{StringBuilder}
 import codegen.ir_async_return.{prepareAsyncReturnValuePlanImpl, emitAsyncReturnValueBranchImpl, emitAsyncReturnVoidBranchImpl}
 import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureBlockBoxImpl}
 import codegen.ir_codegen_global_state.{getPendingArrayLiteralTypeWithGlobalStateImpl, setPendingArrayLiteralTypeWithGlobalStateImpl, getCurrentFunctionReturnTypeWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl, getGlobalStructNamesImpl}
-import codegen.ir_codegen_type_state.{mapTypeState, isDataTypeState}
+import codegen.ir_codegen_type_state.{mapTypeState, isDataTypeState, getDataTypeSizeState}
 import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, currentFunctionRegionSizeBytesImpl, isCurrentFunctionAsyncLoweringImpl, markTailCallPositionImpl}
 import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
 import codegen.ir_optimization.{getNextRegFn}
@@ -204,7 +204,7 @@ fun generateReturnStatementState(ctx: CodegenLoweringContext,
         not returnValueIsExplicitOptionConstructorImpl(stmt.returnValue) {
         let optionReturnReg = coerceOptionStoreValueCoreImpl(output,
             getFeatureRegBoxImpl(), currentReturnType, returnExprType,
-            returnValueReg, getGlobalStructNamesImpl())
+            returnValueReg, stmt.returnValue.kind, getGlobalStructNamesImpl())
         if optionReturnReg != returnValueReg {
             returnValueReg = optionReturnReg
             returnExprType = currentReturnType
@@ -220,10 +220,14 @@ fun generateReturnStatementState(ctx: CodegenLoweringContext,
     }
     emitOwnedCResourceCleanupState(output, varNames, varRegs,
         returnedBinding)
+    var literalBytes = 0
+    if isDataTypeState(currentReturnType) and stmt.returnValue.kind == "StructLiteral" {
+        literalBytes = getDataTypeSizeState(currentReturnType)
+    }
     emitFinalReturnStatementValueImpl(output, getFeatureRegBoxImpl(),
         isDataTypeState(currentReturnType), stmt.returnValue.kind,
         returnExprType, returnExprLlvmType, llvmType,
-        returnValueReg)
+        returnValueReg, literalBytes)
     setBlockTerminatedWithGlobalStateImpl(true)
     return newErrdeferTempAlloca
 }

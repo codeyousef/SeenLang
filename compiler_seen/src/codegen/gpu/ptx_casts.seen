@@ -1,0 +1,40 @@
+/// Float-to-integer domains are tested by IEEE bits, preserving negative tiny
+/// values even if a device uses denormal flushing for arithmetic instructions.
+import codegen.gpu.ptx_context.{GpuPtxFunction}
+import codegen.gpu.ptx_math.{ptxPredicateCombine}
+import typechecker.gpu_types.{gpuTypeScalar, gpuTypeLanes}
+fun ptxCast(function: GpuPtxFunction, sourceType: Int, targetType: Int, value: Int, bitcast: Bool) r: Int {
+    let source = gpuTypeScalar(sourceType); let target = gpuTypeScalar(targetType)
+    if bitcast or source == target or (source != 4 and target != 4) { return value }
+    let result = function.allocate(0, gpuTypeLanes(targetType)); var lane = 0
+    while lane < gpuTypeLanes(targetType) {
+        if source != 4 {
+            var opcode = "cvt.rn.f32.u32"; if source == 2 { opcode = "cvt.rn.f32.s32" }
+            function.body.unary(opcode, result + lane, value + lane)
+        } else {
+            let magnitude = function.allocate(0, 1); let sign = function.allocate(0, 1)
+            function.body.binary("and.b32", magnitude, value + lane, function.word(2147483647))
+            function.body.binary("and.b32", sign, value + lane, function.word(2147483648))
+            var upper = 1333788672; if target == 2 { upper = 1325400064 }
+            var valid = function.allocate(2, 1); function.body.predicate("setp.lt.u32", valid, magnitude, function.word(upper))
+            if target == 2 {
+                let boundary = function.allocate(2, 1); let negative = function.allocate(2, 1)
+                function.body.predicate("setp.eq.u32", boundary, magnitude, function.word(upper))
+                function.body.predicate("setp.ne.u32", negative, sign, function.word(0))
+                let allowedBoundary = ptxPredicateCombine(function, "and.pred", boundary, negative)
+                valid = ptxPredicateCombine(function, "or.pred", valid, allowedBoundary)
+            } else {
+                let positive = function.allocate(2, 1); let zero = function.allocate(2, 1)
+                function.body.predicate("setp.eq.u32", positive, sign, function.word(0))
+                function.body.predicate("setp.eq.u32", zero, magnitude, function.word(0))
+                let allowedSign = ptxPredicateCombine(function, "or.pred", positive, zero)
+                valid = ptxPredicateCombine(function, "and.pred", valid, allowedSign)
+            }
+            let safe = function.allocate(0, 1); function.body.select(safe, value + lane, function.word(0), valid)
+            var opcode = "cvt.rzi.u32.f32"; if target == 2 { opcode = "cvt.rzi.s32.f32" }
+            function.body.unary(opcode, result + lane, safe)
+            let invalid = function.allocate(2, 1); function.body.literal("not.pred "); function.body.reg("p", invalid)
+            function.body.literal(", "); function.body.reg("p", valid); function.body.literal(";\n"); function.faultWhen(invalid, 4)
+        }; lane = lane + 1
+    }; return result
+}

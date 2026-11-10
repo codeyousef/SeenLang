@@ -1,0 +1,71 @@
+import device_fixture_support.{report, gpuFixtureRejected}
+import core.option.{Some, None}
+import compute.backend.{GpuBackend}
+import compute.device_info.{GpuDeviceKind, gpuDeviceKindKnown, gpuDeviceTextValid}
+import compute.limits.{GpuLimits, GPU_MAX_DEVICES}
+import json.builder.{seen_string_clone_owned, seen_string_release_owned}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun main() r: Int {
+    let memory = seen_memory_used_bytes(); let limits = GpuLimits.bounded(4, 4, 16, 4096 as UInt64)
+    let original = report(); let copied = original.snapshot(limits)
+    if copied.isErr() { abort("valid GPU report rejected") }
+    let owned = copied.unwrap(); copied.releaseContainer()
+    original.capabilities.totalBytes = 2048 as UInt64
+    seen_string_release_owned(original.name); original.name = seen_string_clone_owned("Changed")
+    original.release()
+    if owned.kind != GpuDeviceKind.Discrete or owned.name != "Fixture Device" or owned.identity.uuid != "fixture-device-0" or
+        owned.capabilities.totalBytes != (1024 as UInt64) or not owned.freeBytes.isSome() or owned.freeBytes.unwrap() != (512 as UInt64) {
+        abort("GPU device snapshot borrowed original storage")
+    }
+    owned.release()
+    let unknown = report(); unknown.freeBytes.free(); unknown.freeBytes = None<UInt64>()
+    let unknownCopy = unknown.snapshot(limits)
+    if unknownCopy.isErr() { abort("unavailable free-memory measurement rejected") }
+    let unknownOwned = unknownCopy.unwrap(); unknownCopy.releaseContainer(); unknown.release()
+    if unknownOwned.freeBytes.isSome() { abort("unknown free memory became a fabricated measurement") }
+    unknownOwned.release()
+    let kinds = [GpuDeviceKind.Discrete, GpuDeviceKind.Integrated, GpuDeviceKind.Virtual, GpuDeviceKind.Software, GpuDeviceKind.Other]
+    var kindIndex = 0
+    while kindIndex < kinds.length() {
+        if not gpuDeviceKindKnown(kinds[kindIndex]) { abort("known GPU device kind rejected") }
+        kindIndex = kindIndex + 1
+    }
+    kinds.free()
+    var field = 0
+    while field < 20 {
+        let value = report()
+        if field == 0 { value.identity.backend = GpuBackend.CpuOnly }
+        if field == 1 { value.identity.ordinal = -1 }
+        if field == 2 { value.identity.ordinal = GPU_MAX_DEVICES }
+        if field == 3 { value.identity.providerId = 0 as UInt64 }
+        if field == 4 { seen_string_release_owned(value.identity.uuid); value.identity.uuid = seen_string_clone_owned("") }
+        if field == 5 { seen_string_release_owned(value.identity.uuid); value.identity.uuid = seen_string_clone_owned("BAD-ID") }
+        if field == 6 { seen_string_release_owned(value.name); value.name = seen_string_clone_owned("bad\nname") }
+        if field == 7 { seen_string_release_owned(value.driverVersion); value.driverVersion = seen_string_clone_owned("") }
+        if field == 8 { value.capabilities.totalBytes = 0 as UInt64 }
+        if field == 9 { value.freeBytes.free(); value.freeBytes = Some<UInt64>(1025 as UInt64) }
+        if field == 10 { value.capabilities.features = 4096 as UInt64 }
+        if field == 11 { value.capabilities.features = 0 as UInt64 }
+        if field == 12 { value.capabilities.maxWorkgroupX = 0 as UInt64 }
+        if field == 13 { value.capabilities.maxWorkgroupY = 65536 as UInt64 }
+        if field == 14 { value.capabilities.maxWorkgroupZ = 0 as UInt64 }
+        if field == 15 { value.capabilities.maxThreads = 0 as UInt64 }
+        if field == 16 { value.capabilities.maxThreads = 65536 as UInt64 }
+        if field == 17 { value.capabilities.maxSharedBytes = 16777217 as UInt64 }
+        if field == 18 { value.capabilities.subgroupWidth = 0 }
+        if field == 19 { value.capabilities.subgroupWidth = 129 }
+        gpuFixtureRejected(value.validate(limits), "gpu.invalid")
+        let snapshot = value.snapshot(limits)
+        if snapshot.isOkay() { abort("invalid driver report was snapshotted") }
+        snapshot.unwrapErr().release(); snapshot.releaseContainer(); value.release()
+        field = field + 1
+    }
+    let value = report(); limits.maxDevices = 0
+    gpuFixtureRejected(value.validate(limits), "gpu.limit"); value.release(); limits.release()
+    if gpuDeviceTextValid("", 1) or gpuDeviceTextValid("too long", 2) or
+        not gpuDeviceTextValid("Device 1", 8) { abort("GPU text bound changed") }
+    if seen_memory_used_bytes() != memory { abort("GPU report paths leaked allocations") }
+    println("PASS: GPU-006A hostile driver reports and independent owned device snapshots")
+    return 0
+}

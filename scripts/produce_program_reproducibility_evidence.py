@@ -142,10 +142,34 @@ def copy_corpus(repo: Path, destination: Path) -> None:
         "runtime-context/main.seen",
     ):
         annotate_main(destination / relative)
+    # Standalone fixtures must not inherit this checkout's outer Seen.toml:
+    # its module-relative identities would include source-a/source-b paths.
+    for name in ("single-file", "runtime-context"):
+        (destination / name / "Seen.toml").write_text(
+            'manifest-version = 1\n\n[project]\n'
+            f'name = "core_004fg_{name.replace("-", "_")}"\n'
+            'version = "0.1.0"\nlanguage = "en"\nmodules = ["main.seen"]\n',
+            encoding="utf-8")
 
 
-def archive_members(repo: Path, compiler: Path) -> list[tuple[str, Path]]:
-    members = [("bin/seen", compiler)]
+def selected_package_client(repo: Path, compiler: Path) -> Path:
+    override = os.environ.get("SEEN_PACKAGE_CLIENT", "")
+    if override:
+        candidates = [Path(override)]
+    else:
+        candidates = [compiler.parent / "seen-pkg",
+                      repo / "bin/seen-pkg",
+                      repo / "compiler_seen/target/seen-pkg",
+                      repo / "tools/seen-pkg/bin/seen-pkg"]
+    for candidate in candidates:
+        if candidate.is_file() and not candidate.is_symlink() and \
+                candidate.stat().st_mode & 0o111:
+            return candidate.resolve(strict=True)
+    die("selected package client is unavailable; supply SEEN_PACKAGE_CLIENT")
+
+
+def archive_members(repo: Path, compiler: Path, package_client: Path) -> list[tuple[str, Path]]:
+    members = [("bin/seen", compiler), ("bin/seen-pkg", package_client)]
     for base, patterns in (
         (repo / "seen_runtime", ("*.c", "*.h")),
         (repo / "seen_std/src", ("*.seen",)),
@@ -155,12 +179,15 @@ def archive_members(repo: Path, compiler: Path) -> list[tuple[str, Path]]:
                 if path.is_file() and not path.is_symlink():
                     members.append((path.relative_to(repo).as_posix(), path))
     members.append(("seen_std/Seen.toml", repo / "seen_std/Seen.toml"))
+    members.append(("bin/compatibility-manifest.json",
+                    repo / "releases/compatibility-manifest.json"))
     return sorted(members)
 
 
-def make_installed_archive(repo: Path, compiler: Path, output: Path) -> None:
+def make_installed_archive(repo: Path, compiler: Path, package_client: Path, output: Path) -> None:
     manifest = {
         "compiler_sha256": sha_file(compiler),
+        "package_client_sha256": sha_file(package_client),
         "runtime_sha256": safe_tree_digest(repo / "seen_runtime"),
         "schema": "seen-program-installed-input-v1",
         "source_date_epoch": EPOCH,
@@ -168,7 +195,7 @@ def make_installed_archive(repo: Path, compiler: Path, output: Path) -> None:
     }
     raw = io.BytesIO()
     with tarfile.open(fileobj=raw, mode="w", format=tarfile.GNU_FORMAT) as archive:
-        for name, source in archive_members(repo, compiler):
+        for name, source in archive_members(repo, compiler, package_client):
             info = archive.gettarinfo(str(source), arcname=name)
             info.uid = info.gid = 0
             info.uname = info.gname = ""
@@ -198,22 +225,34 @@ def prepare(args: argparse.Namespace) -> None:
     compiler = Path(args.compiler).resolve(strict=True)
     if not compiler.is_file() or compiler.is_symlink() or compiler.stat().st_mode & 0o111 == 0:
         die("compiler must be a non-symlink executable")
+    package_client = selected_package_client(repo, compiler)
     for suffix in ("a", "b"):
         copy_corpus(repo, session / f"source-{suffix}")
         builder = session / f"builder-{suffix}"
         builder.mkdir()
         shutil.copy2(compiler, builder / "seen")
         (session / f"source-{suffix}/.seen_cache").mkdir()
+    # Give an arbitrarily located candidate a genuine checkout-shaped toolchain
+    # root, so consumer-context execution needs no ambient source-root override.
+    checkout = session / "builder-a"
+    (checkout / "compiler_seen/target").mkdir(parents=True)
+    shutil.copy2(compiler, checkout / "compiler_seen/target/seen")
+    shutil.copy2(package_client, checkout / "compiler_seen/target/seen-pkg")
+    shutil.copytree(repo / "seen_std/src", checkout / "seen_std/src",
+                    ignore=ignore_generated)
+    shutil.copytree(repo / "seen_runtime", checkout / "seen_runtime",
+                    ignore=ignore_generated)
     installed = session / "installed-b"
     (installed / "bin").mkdir(parents=True)
     (installed / "lib/seen").mkdir(parents=True)
     shutil.copy2(compiler, installed / "bin/seen")
-    package_client = repo / "tools/seen-pkg/bin/seen-pkg"
-    if package_client.is_file():
-        shutil.copy2(package_client, installed / "bin/seen-pkg")
+    shutil.copy2(package_client, installed / "bin/seen-pkg")
     compatibility = repo / "releases/compatibility-manifest.json"
-    if compatibility.is_file():
-        shutil.copy2(compatibility, installed / "bin/compatibility-manifest.json")
+    if not compatibility.is_file() or compatibility.is_symlink():
+        die("package compatibility manifest is unavailable or unsafe")
+    (checkout / "releases").mkdir()
+    shutil.copy2(compatibility, checkout / "releases/compatibility-manifest.json")
+    shutil.copy2(compatibility, installed / "bin/compatibility-manifest.json")
     shutil.copytree(repo / "seen_std/src", installed / "lib/seen/std",
                     ignore=ignore_generated)
     shutil.copytree(repo / "seen_runtime", installed / "lib/seen/runtime",
@@ -222,7 +261,7 @@ def prepare(args: argparse.Namespace) -> None:
         path.chmod(path.stat().st_mode & ~0o222)
     installed.chmod(installed.stat().st_mode & ~0o222)
     archive = session / "seen-runtime.tar.gz"
-    make_installed_archive(repo, compiler, archive)
+    make_installed_archive(repo, compiler, package_client, archive)
     for suffix in ("a", "b"):
         shutil.copy2(archive, session / f"builder-{suffix}/seen-runtime.tar.gz")
     pins = {}
@@ -270,9 +309,9 @@ def containment() -> dict[str, int]:
     tasks = read_numeric(cgroup / "pids.current", "pids.current")
     requested_memory = int(os.environ.get("SEEN_MEMORY_GUARD_RSS_KB", "0")) * 1024
     requested_pids = int(os.environ.get("SEEN_MEMORY_GUARD_TASKS_MAX", "0"))
-    if (memory != requested_memory or memory > 68_719_476_736 or swap != 0 or
-            pids != requested_pids or not 1 <= pids <= 24 or not 1 <= tasks <= pids):
-        die("aggregate cgroup limits do not match their requested values")
+    if (not 1 <= memory <= requested_memory or memory > 68_719_476_736 or swap != 0 or
+            not 1 <= pids <= requested_pids <= 24 or not 1 <= tasks <= pids):
+        die("aggregate cgroup limits do not enforce their requested bounds")
     available_kib = 0
     for line in Path("/proc/meminfo").read_text().splitlines():
         if line.startswith("MemAvailable:"):
@@ -297,13 +336,15 @@ def containment() -> dict[str, int]:
 
 def deterministic_environment() -> dict[str, str]:
     environment = dict(os.environ)
-    environment.pop("SEEN_COMPILER_SOURCE_ROOT", None)
-    environment.pop("SEEN_PACKAGE_CLIENT", None)
+    for name in ("SEEN_COMPILER_SOURCE_ROOT", "SEEN_PACKAGE_CLIENT", "SEEN_DATA_PATH",
+                 "SEEN_DETERMINISTIC", "SEEN_DETERMINISTIC_COMPILER_REEXEC"):
+        environment.pop(name, None)
     environment.update({
         "CORE_004E_VISIBLE": "granted-value",
         "LANG": "C.UTF-8",
         "LC_ALL": "C.UTF-8",
-        "SEEN_DETERMINISTIC": "1",
+        # --deterministic activates the compiler's internal re-exec protocol.
+        # Do not enable the bounded public user-program snapshot at compiler launch.
         "SEEN_DETERMINISTIC_SEED": SEED,
         "SEEN_HASH_SEED": SEED,
         "SOURCE_DATE_EPOCH": str(EPOCH),
@@ -318,7 +359,26 @@ def command_output(command: list[str]) -> str:
     return " ".join(result.stdout.split())[:256]
 
 
+def program_compile_flags(mode: str, source: Path) -> list[str]:
+    # This certifier executes its artifacts and certifies native Linux x86-64.
+    # An explicit --target selects the cross-target path, where full LTO is
+    # deliberately ineligible; it is not the native default/full-LTO matrix.
+    if sys.platform != "linux" or os.uname().machine != "x86_64":
+        die("native program certification requires a Linux x86-64 host")
+    flags = ["--deterministic", "--target-cpu=x86-64", "--simd=none", "--no-fork"]
+    if mode == "release-full-lto":
+        flags.extend(("--release", "--lto=full"))
+    elif mode == "release-thin-lto":
+        flags.extend(("--release", "--lto=thin"))
+    elif mode != "default":
+        die(f"unsupported program build mode: {mode}")
+    if "locked-package" in source.parts or "multi-module" in source.parts:
+        flags.append("--frozen")
+    return flags
+
+
 def program_metadata(source_root: Path, compiler: Path, toolchain: str,
+                     installed_archive_sha256: str,
                      program_id: str, mode: str, relative: str) -> dict[str, object]:
     program_root = (source_root / relative).parent
     manifest_root = program_root
@@ -329,6 +389,7 @@ def program_metadata(source_root: Path, compiler: Path, toolchain: str,
     source_digest = safe_tree_digest(manifest_root)
     lock = manifest_root / "Seen.lock"
     lock_digest = sha_file(lock) if lock.exists() else sha_bytes(b"absent\n")
+    flags = program_compile_flags(mode, source_root / relative)
     build_input = {
         "compiler_sha256": sha_file(compiler),
         "environment": {
@@ -336,18 +397,19 @@ def program_metadata(source_root: Path, compiler: Path, toolchain: str,
             "SEEN_DETERMINISTIC_SEED": SEED, "SEEN_HASH_SEED": SEED,
             "SOURCE_DATE_EPOCH": str(EPOCH), "TZ": "UTC",
         },
-        "flags": ["--deterministic", "--target=linux-x86_64",
-                  "--target-cpu=x86-64", "--simd=none", "--no-fork"],
+        "flags": flags,
         "lock_digest": lock_digest,
+        "installed_archive_sha256": installed_archive_sha256,
         "mode": mode,
         "object_cache_abi": "seen-object-cache-abi-v3",
         "program": program_id,
         "source_digest": source_digest,
         "toolchain": toolchain,
+        "target": "linux-x86_64",
     }
     return {
         "build_input_digest": sha_bytes(canonical(build_input)),
-        "command": f"seen compile /seen/src/{program_id}/main.seen {program_id} --deterministic --target-cpu=x86-64 --simd=none",
+        "command": f"seen compile /seen/src/{program_id}/main.seen {program_id} " + " ".join(flags),
         "lock_digest": lock_digest,
         "source_digest": source_digest,
     }
@@ -365,17 +427,11 @@ def compile_program(attested: Path, compiler: Path, source_root: Path,
                     source: Path, output: Path,
                     mode: str, cache_mode: str, environment: dict[str, str],
                     log: Path) -> None:
-    command = ["bash", str(attested), str(compiler), "compile", str(source), str(output),
-               "--deterministic", "--target=linux-x86_64", "--target-cpu=x86-64",
-               "--simd=none", "--no-fork"]
-    if mode == "release-full-lto":
-        command.extend(("--release", "--lto=full"))
-    elif mode == "release-thin-lto":
-        command.extend(("--release", "--lto=thin"))
+    command = ["bash", str(attested), "--consumer-context", str(source_root),
+               str(compiler), "compile", str(source), str(output),
+               *program_compile_flags(mode, source)]
     if cache_mode == "disabled":
         command.append("--no-cache")
-    if "locked-package" in source.parts or "multi-module" in source.parts:
-        command.append("--frozen")
     with log.open("wb") as stream:
         result = subprocess.run(command, cwd=source_root, env=environment,
                                 stdout=stream, stderr=subprocess.STDOUT, timeout=1200)
@@ -409,22 +465,32 @@ def worker(args: argparse.Namespace) -> None:
     program_results = []
     for program_id, mode, relative in PROGRAMS:
         source = source_root / relative
-        metadata = program_metadata(source_root, compiler, toolchain, program_id, mode, relative)
+        metadata = program_metadata(
+            source_root, compiler, toolchain,
+            sha_file(builder_root / "seen-runtime.tar.gz"), program_id, mode, relative)
         runs = []
-        program_cache = cache_root
-        if program_cache.exists():
-            shutil.rmtree(program_cache)
-        program_cache.mkdir()
+        # Both the source-object cache and compiler artifact/IR caches belong
+        # exclusively to this consumer root. Cold starts clear both layers.
+        for cache in (cache_root, source_root / ".seen"):
+            if cache.exists():
+                shutil.rmtree(cache)
+        staging = source_root / ".seen/outputs"
+        staging.mkdir(parents=True)
         for cache_mode in CACHE_MODES:
-            if cache_mode == "cold":
-                if program_cache.exists():
-                    shutil.rmtree(program_cache)
             output = builder_root / f"{program_id}-{cache_mode}.bin"
             output.unlink(missing_ok=True)
+            staged_output = staging / output.name
             log = session / f"{args.builder}-{program_id}-{cache_mode}.compile.log"
-            compile_program(attested, compiler, source_root, source, output,
+            compile_program(attested, compiler, source_root, source, staged_output,
                             mode, cache_mode, environment, log)
-            execution = bounded_run(output, environment)
+            os.replace(staged_output, output)
+            runtime_environment = {
+                name: environment[name] for name in (
+                    "CORE_004E_VISIBLE", "LANG", "LC_ALL", "TZ",
+                    "SOURCE_DATE_EPOCH", "SEEN_DETERMINISTIC_SEED", "SEEN_HASH_SEED")
+            }
+            runtime_environment["SEEN_DETERMINISTIC"] = "1"
+            execution = bounded_run(output, runtime_environment)
             if execution.returncode != 0:
                 die(f"runtime did not succeed: {args.builder}/{program_id}/{cache_mode}")
             if len(execution.stdout) > MAX_CAPTURE or len(execution.stderr) > MAX_CAPTURE:
@@ -477,7 +543,7 @@ def worker(args: argparse.Namespace) -> None:
     partial = {
         "build_root_digest": path_identity(builder_root),
         "builder_identity": sha_bytes(f"seen-program-{args.builder}\n".encode()),
-        "cache_root_digest": path_identity(cache_root),
+        "cache_root_digest": path_identity(source_root),
         "compiler": "seen",
         "compiler_identity": compiler_identity,
         "compiler_sha256": sha_file(compiler_pin),
@@ -557,6 +623,13 @@ def sign_builder(session: Path, partial: dict[str, object]) -> dict[str, object]
             private_key, inventory_payload,
             session / f"{builder['id']}.inventory.json", signature_path,
         )
+        if builder["id"] == "builder-a":
+            # A validly signed false root is a negative control, prepared while
+            # only this worker owns its key. The finalizer never receives keys.
+            wrong_root = dict(builder, build_root_digest="0" * 64)
+            sign_inventory(private_key, builder_inventory(wrong_root),
+                           session / "builder-a.root-mutation.inventory.json",
+                           session / "builder-a.root-mutation.sig")
     finally:
         private_key.unlink(missing_ok=True)
     builder["attestation"] = {
@@ -666,8 +739,8 @@ def finalize(args: argparse.Namespace) -> None:
         env_pins.append({"name": name, "value_sha256": sha_bytes(value.encode())})
     runtime_digest = safe_tree_digest(repo / "seen_runtime")
     stdlib_digest = safe_tree_digest(repo / "seen_std/src")
-    package_client = repo / "tools/seen-pkg/bin/seen-pkg"
-    package_digest = sha_file(package_client) if package_client.is_file() else sha_bytes(b"absent\n")
+    package_client = session / "builder-a/compiler_seen/target/seen-pkg"
+    package_digest = sha_file(package_client)
     build_input = {
         "compiler_sha256": first["compiler_sha256"],
         "coverage": False,
@@ -762,10 +835,16 @@ def mutate_evidence(args: argparse.Namespace) -> None:
         inventory_payload = builder_inventory(builder)
         inventory = sha_bytes(inventory_payload)
         signature_path = output.with_suffix(".sig")
-        signature = sign_inventory(
-            source.parent / "builder-a.private.pem", inventory_payload,
-            output.with_suffix(".inventory.json"), signature_path,
-        )
+        signed_inventory = source.parent / "builder-a.root-mutation.inventory.json"
+        if signed_inventory.read_bytes() != inventory_payload:
+            die("root negative control does not cover the measured builder")
+        shutil.copy2(signed_inventory, output.with_suffix(".inventory.json"))
+        shutil.copy2(source.parent / "builder-a.root-mutation.sig", signature_path)
+        signature = signature_path.read_bytes()
+        openssl(["pkeyutl", "-verify", "-pubin", "-inkey",
+                 str(source.parent / "builder-a.public.pem"), "-rawin",
+                 "-in", str(output.with_suffix(".inventory.json")),
+                 "-sigfile", str(signature_path)])
         builder["attestation"]["inventory_sha256"] = inventory
         builder["attestation"]["signature_sha256"] = sha_bytes(signature)
         print(f"signature={signature_path}")

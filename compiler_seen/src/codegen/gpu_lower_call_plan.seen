@@ -1,0 +1,105 @@
+/// Call planning fixes the supported vocabulary, signature and compile-time
+/// memory semantics. Expression traversal and evaluation order stay in the
+/// value lowerer, keeping the module graph acyclic.
+import parser.real_parser.{ParserExpressionNode}
+import codegen.gpu_lower_context.{GpuLowerContext}
+import codegen.gpu_call_plan_model.{GpuCallPlan, gpuLowerName}
+import codegen.gpu_precision_call_plan.{gpuPrecisionCallOpcode, gpuPlanPrecisionCall}
+import codegen.gpu_ir_ops.{GPU_IR_CALL, GPU_IR_VECTOR, GPU_IR_INTRINSIC, GPU_IR_SUBGROUP,
+    GPU_IR_ATOMIC_LOAD, GPU_IR_ATOMIC_STORE, GPU_IR_ATOMIC_RMW, GPU_IR_ATOMIC_COMPARE,
+    GPU_IR_BARRIER, GPU_IR_MEMORY_BARRIER}
+import codegen.gpu_ir_value_rules.{gpuIrIntrinsicCode}
+import typechecker.gpu_types.{gpuValueType, gpuTypeLanes, gpuTypeResource}
+
+fun gpuLowerAtomicOperation(name: String) r: Int {
+    if name == "atomicExchange" { return 1 }; if name == "atomicAdd" { return 2 }; if name == "atomicSub" { return 3 }
+    if name == "atomicMin" { return 4 }; if name == "atomicMax" { return 5 }; if name == "atomicAnd" { return 6 }
+    if name == "atomicOr" { return 7 }; if name == "atomicXor" { return 8 }; return 0
+}
+fun gpuLowerSubgroupOperation(name: String) r: Int {
+    if name == "subgroupElect" { return 1 }; if name == "subgroupAll" { return 2 }; if name == "subgroupAny" { return 3 }
+    if name == "subgroupShuffle" { return 4 }; if name == "subgroupBroadcast" { return 5 }; if name == "subgroupAdd" { return 6 }
+    return 0
+}
+fun gpuLowerFindHelper(context: GpuLowerContext, name: String) r: Int {
+    var i = 0
+    while i < context.module.functions.length() {
+        if context.module.functions[i].name == name and not context.module.functions[i].kernel { return i }; i = i + 1
+    }
+    return -1
+}
+fun gpuLowerMemoryEnum(context: GpuLowerContext, expression: ParserExpressionNode, category: Int, depth: Int) r: Int {
+    if not context.visit(depth) { return 0 }
+    if expression.kind != "Variable" and expression.kind != "VarExpr" {
+        context.error("E_GPU_MEMORY", "GPU memory semantics require compile-time enum identities"); return 0
+    }
+    let name = gpuLowerName(expression)
+    if context.find(name) >= 0 { context.error("E_GPU_MEMORY", "GPU memory enum identity is shadowed by a local"); return 0 }
+    var result = 0
+    if category == 1 {
+        if name == "InvocationScope" { result = 1 }; if name == "SubgroupScope" { result = 2 }
+        if name == "WorkgroupScope" { result = 3 }; if name == "DeviceScope" { result = 4 }
+    } else if category == 2 {
+        if name == "Relaxed" { result = 1 }; if name == "Acquire" { result = 2 }; if name == "Release" { result = 3 }
+        if name == "AcquireRelease" { result = 4 }; if name == "SequentiallyConsistent" { result = 5 }
+    } else if category == 3 {
+        if name == "StorageMemory" { result = 1 }; if name == "WorkgroupMemory" { result = 2 }
+        if name == "StorageAndWorkgroupMemory" { result = 3 }
+    }
+    if result == 0 { context.error("E_GPU_MEMORY", "unknown or incompatible GPU memory enum identity") }; return result
+}
+fun gpuPlanMemoryCall(context: GpuLowerContext, expression: ParserExpressionNode, plan: GpuCallPlan, depth: Int) r: Void {
+    let name = expression.callee; var count = 5; plan.opcode = GPU_IR_ATOMIC_RMW; plan.dataOperands = 3
+    plan.immediate = gpuLowerAtomicOperation(name)
+    if name == "barrier" or name == "memoryBarrier" {
+        if expression.arguments.length() != 3 { context.error("E_GPU_MEMORY", "GPU barriers require scope, order and memory spaces"); return }
+        plan.opcode = GPU_IR_BARRIER; if name == "memoryBarrier" { plan.opcode = GPU_IR_MEMORY_BARRIER }; plan.dataOperands = 0
+        plan.memoryScope = gpuLowerMemoryEnum(context, expression.arguments[0], 1, depth + 1)
+        plan.memoryOrder = gpuLowerMemoryEnum(context, expression.arguments[1], 2, depth + 1)
+        plan.memorySpaces = gpuLowerMemoryEnum(context, expression.arguments[2], 3, depth + 1); return
+    }
+    if name == "atomicLoad" { plan.opcode = GPU_IR_ATOMIC_LOAD; plan.dataOperands = 2; plan.immediate = 0; count = 4 }
+    if name == "atomicStore" { plan.opcode = GPU_IR_ATOMIC_STORE; plan.immediate = 0 }
+    if name == "atomicCompareExchange" { plan.opcode = GPU_IR_ATOMIC_COMPARE; plan.dataOperands = 4; count = 7 }
+    if expression.arguments.length() != count { context.error("E_GPU_MEMORY", "invalid GPU atomic argument count"); return }
+    plan.memoryOrder = gpuLowerMemoryEnum(context, expression.arguments[plan.dataOperands], 2, depth + 1)
+    var scopeIndex = plan.dataOperands + 1
+    if plan.opcode == GPU_IR_ATOMIC_COMPARE {
+        plan.immediate = gpuLowerMemoryEnum(context, expression.arguments[plan.dataOperands + 1], 2, depth + 1); scopeIndex = plan.dataOperands + 2
+    }
+    plan.memoryScope = gpuLowerMemoryEnum(context, expression.arguments[scopeIndex], 1, depth + 1)
+}
+fun gpuPlanCall(context: GpuLowerContext, expression: ParserExpressionNode, depth: Int) r: GpuCallPlan {
+    let plan = GpuCallPlan{opcode: 0, typeCode: 0, immediate: 0, dataOperands: 0, dataOffset: 0, resourceMask: 0, memoryScope: 0, memoryOrder: 0, memorySpaces: 0}
+    if expression.arguments.length() > 64 or expression.callee.length() > 256 {
+        context.error("E_GPU_LIMIT", "GPU call identity or arity exceeds its ceiling"); return plan
+    }
+    let name = expression.callee
+    if context.find(name) >= 0 { context.error("E_GPU_UNSUPPORTED", "GPU calls cannot use dynamic or shadowed callees"); return plan }
+    if gpuPrecisionCallOpcode(name) != 0 { gpuPlanPrecisionCall(context, expression, plan, depth); return plan }
+    if name == "barrier" or name == "memoryBarrier" or name == "atomicLoad" or name == "atomicStore" or
+        name == "atomicCompareExchange" or gpuLowerAtomicOperation(name) != 0 { gpuPlanMemoryCall(context, expression, plan, depth); return plan }
+    let intrinsic = gpuIrIntrinsicCode(name); let constructor = gpuValueType(name); let subgroup = gpuLowerSubgroupOperation(name)
+    let helper = gpuLowerFindHelper(context, name); var arity = -1
+    if helper >= 0 {
+        plan.opcode = GPU_IR_CALL; plan.immediate = helper; plan.typeCode = context.module.functions[helper].returnType
+        arity = context.module.functions[helper].parameterTypes.length()
+    } else if intrinsic != 0 {
+        plan.opcode = GPU_IR_INTRINSIC; plan.immediate = intrinsic; arity = 1
+        if intrinsic <= 2 { arity = 2 }; if intrinsic == 3 { arity = 3 }
+    } else if constructor >= 16 {
+        plan.opcode = GPU_IR_VECTOR; plan.typeCode = constructor; arity = gpuTypeLanes(constructor)
+        if expression.arguments.length() == 1 { arity = 1 }
+    } else if subgroup != 0 {
+        plan.opcode = GPU_IR_SUBGROUP; plan.immediate = subgroup; arity = 1
+        if subgroup == 1 { arity = 0 }; if subgroup == 4 or subgroup == 5 { arity = 2 }
+        if subgroup <= 3 { plan.typeCode = 1 }
+    } else { context.error("E_GPU_UNSUPPORTED", "GPU call is not a supported intrinsic or concrete device helper"); return plan }
+    if expression.arguments.length() != arity { context.error("E_GPU_TYPE", "GPU call arity differs from its signature"); return plan }
+    plan.dataOperands = arity; return plan
+}
+fun gpuPlanResourceArgument(context: GpuLowerContext, plan: GpuCallPlan, index: Int) r: Bool {
+    if plan.opcode == GPU_IR_CALL { return gpuTypeResource(context.module.functions[plan.immediate].parameterTypes[index]) != 0 }
+    if index >= 0 and index < 8 and (plan.resourceMask & (1 << index)) != 0 { return true }
+    return plan.opcode >= GPU_IR_ATOMIC_LOAD and plan.opcode <= GPU_IR_ATOMIC_COMPARE and index == 0
+}

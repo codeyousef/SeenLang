@@ -1,0 +1,12 @@
+/// Raw Linux ABI only. Negative values are Linux errno, not AsyncError statuses.
+extern "C" fun seen_uring_setup(entries: UInt32, parameters: *UInt8, bytes: UInt64) r: Int64
+extern "C" fun seen_uring_enter(ring: Int64, submitted: UInt32) r: Int64
+extern "C" fun seen_uring_register(ring: Int64, opcode: UInt32, argument: *Void, count: UInt32) r: Int64
+extern "C" fun seen_uring_map(ring: Int64, offset: UInt64, bytes: UInt64, address: *UInt64) r: Int64
+extern "C" fun seen_uring_unmap(address: *UInt8, bytes: UInt64) r: Int64
+extern "C" fun seen_uring_eventfd_create() r: Int64
+extern "C" fun seen_uring_eventfd_drain(descriptor: Int64) r: Int64
+extern "C" fun seen_uring_page_size() r: Int64
+extern "C" fun seen_uring_duplicate_file(source: UInt64) r: Int64
+extern "C" fun seen_uring_load_acquire(address: *UInt32) r: UInt32
+extern "C" fun seen_uring_store_release(address: *UInt32, value: UInt32) r: Void

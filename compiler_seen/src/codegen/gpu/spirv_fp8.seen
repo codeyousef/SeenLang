@@ -1,0 +1,12 @@
+/// Bootstrap-compatible entry points delegate to the shared scalar policy.
+import codegen.gpu.spirv_function.{GpuSpirvFunction}
+import codegen.gpu.spirv_scalar_plan.{spirvScalarPlanValue}
+import codegen.gpu.scalar_packed.{scalarPayloadPlan}
+import codegen.gpu_precision_formats.{GPU_FORMAT_FP8_E4M3FN}
+
+fun spirvPackFp8(function: GpuSpirvFunction, value: Int) r: Int {
+    return spirvScalarPlanValue(function, scalarPayloadPlan(GPU_FORMAT_FP8_E4M3FN, value, 0, true))
+}
+fun spirvUnpackFp8(function: GpuSpirvFunction, payload: Int) r: Int {
+    return spirvScalarPlanValue(function, scalarPayloadPlan(GPU_FORMAT_FP8_E4M3FN, payload, 0, false))
+}

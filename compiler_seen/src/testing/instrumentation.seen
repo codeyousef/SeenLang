@@ -59,7 +59,8 @@ fun validateTestInstrumentation(plan: TestInstrumentationPlan,
             "test.002a.invalid", "test instrumentation profile is invalid"))
     }
     if sanitizerProfile and (plan.coverage or
-        plan.sanitizer != plan.profile.substring(10, plan.profile.length())) {
+        (plan.profile == "sanitizer-undefined" and plan.sanitizer != "undefined") or
+        (plan.profile == "sanitizer-thread" and plan.sanitizer != "thread")) {
         return Err<TestInstrumentationPlan, SeenError>(test002aError(
             "test.002a.invalid", "sanitizer profile does not match its mode"))
     }
@@ -68,12 +69,19 @@ fun validateTestInstrumentation(plan: TestInstrumentationPlan,
         return Err<TestInstrumentationPlan, SeenError>(test002aError(
             "test.002a.limit", "instrumented component set is incomplete"))
     }
-    var seenNames = "|"
     var index = 0
     while index < plan.components.length() {
         let component = plan.components[index]
+        var repeated = false
+        var previous = 0
+        while previous < index {
+            if plan.components[previous].name == component.name {
+                repeated = true
+            }
+            previous = previous + 1
+        }
         if not testInstrumentationComponentKnown(component.name) or
-            seenNames.contains("|" + component.name + "|") or
+            repeated or
             not component.compiled or not component.softwareExecuted or
             component.hardwareExecuted {
 
@@ -81,7 +89,6 @@ fun validateTestInstrumentation(plan: TestInstrumentationPlan,
                 "test.002a.invalid",
                 "instrumentation evidence cannot claim missing or hardware execution"))
         }
-        seenNames = seenNames + component.name + "|"
         index = index + 1
     }
     return Ok<TestInstrumentationPlan, SeenError>(plan)

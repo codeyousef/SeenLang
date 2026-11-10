@@ -1,0 +1,87 @@
+/// Independent owning snapshots outlive discovery buffers and driver calls.
+import core.result.{Result, Ok, Err}
+import core.option.{Option, Some, None}
+import core.error.{errorIdentityValid}
+import compute.backend.{GpuBackend, gpuBackendKnown}
+import compute.capabilities.{GpuCapabilities}
+import compute.error.{GpuError, gpuFailure}
+import compute.limits.{GpuLimits, GPU_MAX_DEVICES}
+import json.builder.{seen_string_clone_owned, seen_string_release_owned}
+
+enum GpuDeviceKind { Discrete; Integrated; Virtual; Software; Other }
+
+fun gpuDeviceKindKnown(kind: GpuDeviceKind) r: Bool {
+    return kind == GpuDeviceKind.Discrete or kind == GpuDeviceKind.Integrated or
+        kind == GpuDeviceKind.Virtual or kind == GpuDeviceKind.Software or kind == GpuDeviceKind.Other
+}
+
+fun gpuDeviceTextValid(value: String, maximum: Int) r: Bool {
+    if value.length() == 0 or value.length() > maximum { return false }
+    var index = 0
+    while index < value.length() {
+        let byte = value.byteAt(index)
+        if byte < 32 or byte > 126 { return false }
+        index = index + 1
+    }
+    return true
+}
+
+@move
+class GpuDeviceIdentity {
+    var backend: GpuBackend
+    var ordinal: Int
+    var providerId: UInt64
+    var uuid: String
+
+    fun valid(maximum: Int) r: Bool {
+        return gpuBackendKnown(this.backend) and this.backend != GpuBackend.CpuOnly and
+            this.ordinal >= 0 and this.ordinal < GPU_MAX_DEVICES and this.providerId != (0 as UInt64) and
+            this.uuid.length() <= maximum and errorIdentityValid(this.uuid)
+    }
+    fun release() r: Void { seen_string_release_owned(this.uuid); this.free() }
+}
+
+@move
+class GpuDeviceInfo {
+    var identity: GpuDeviceIdentity
+    var kind: GpuDeviceKind
+    var name: String
+    var driverVersion: String
+    var capabilities: GpuCapabilities
+    var freeBytes: Option<UInt64>
+
+    fun validate(borrow limits: GpuLimits) r: Result<Bool, GpuError> {
+        let valid = limits.validate()
+        if valid.isErr() { return valid }
+        valid.releaseContainer()
+        if not gpuDeviceKindKnown(this.kind) or not this.identity.valid(limits.maxIdentityBytes) or
+            not gpuDeviceTextValid(this.name, limits.maxNameBytes) or
+            not gpuDeviceTextValid(this.driverVersion, limits.maxVersionBytes) or
+            not this.capabilities.valid() {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.device", "GPU device identity or capability report is invalid"))
+        }
+        if this.freeBytes.isSome() and this.freeBytes.unwrap() > this.capabilities.totalBytes {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.device", "GPU free memory exceeds total device memory"))
+        }
+        return Ok<Bool, GpuError>(true)
+    }
+    fun snapshot(borrow limits: GpuLimits) r: Result<GpuDeviceInfo, GpuError> {
+        let valid = this.validate(limits)
+        if valid.isErr() { let error = valid.unwrapErr(); valid.releaseContainer(); return Err<GpuDeviceInfo, GpuError>(error) }
+        valid.releaseContainer()
+        let copied = this.capabilities.snapshot()
+        if copied.isErr() { let error = copied.unwrapErr(); copied.releaseContainer(); return Err<GpuDeviceInfo, GpuError>(error) }
+        let capabilities = copied.unwrap(); copied.releaseContainer()
+        var freeBytes = None<UInt64>()
+        if this.freeBytes.isSome() { freeBytes.free(); freeBytes = Some<UInt64>(this.freeBytes.unwrap()) }
+        return Ok<GpuDeviceInfo, GpuError>(GpuDeviceInfo{
+            identity: GpuDeviceIdentity{backend: this.identity.backend, ordinal: this.identity.ordinal,
+                providerId: this.identity.providerId, uuid: seen_string_clone_owned(this.identity.uuid)},
+            kind: this.kind, name: seen_string_clone_owned(this.name), driverVersion: seen_string_clone_owned(this.driverVersion),
+            capabilities: capabilities, freeBytes: freeBytes})
+    }
+    fun release() r: Void {
+        this.identity.release(); this.capabilities.release(); this.freeBytes.free()
+        seen_string_release_owned(this.name); seen_string_release_owned(this.driverVersion); this.free()
+    }
+}

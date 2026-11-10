@@ -1,0 +1,93 @@
+import io.completion_types.{IoQueueLimits, IoRegistration, IoRejectedSubmission, IoSubmissionView, IO_DEVICE_REMOVED_STATUS}
+import io.completion_queue.{IoQueue}
+import io.uring_layout.{uringStatus}
+import io.iocp_layout.{iocpStatus}
+import io.macos_file.{macosIoStatus}
+import async.executor_core.{executorReleaseContext}
+import fixture_support.{ioMust, ioRequire, ioErrorIs, ioContext, ioFixtureRequest, ioTake}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun adverseQueue() r: IoQueue {
+    let limits = IoQueueLimits{depth: 1, maxTransferBytes: 64 as UInt64, maxOwnedBytes: 64 as UInt64, maxMetadataBytes: 8192 as UInt64}
+    let queue: IoQueue = ioMust(IoQueue.create(limits)); limits.free(); return queue
+}
+fun adverseCompletion(status: Int32, native: Int64, bytes: UInt64, expected: String, stop: Int) r: Void {
+    let context = ioContext(); let queue = adverseQueue()
+    let registration: IoRegistration = ioMust(queue.reserve(ioFixtureRequest(context)))
+    let view: IoSubmissionView = ioMust(queue.submission(registration.token)); view.free(); ioMust(queue.submitted(registration.token))
+    if stop == 1 { ioMust(queue.cancel(registration.token)) }
+    if stop == 2 {
+        queue.entries[queue.slot(registration.token)].unwrap().context.operation.monotonicDeadline = 0 as Int64
+        let observed = queue.nextCancellation(); ioRequire(observed.isSome()); observed.unwrap().free(); observed.free()
+    }
+    if stop >= 3 {
+        if stop == 4 { ioMust(queue.cancel(registration.token)) }
+        if stop == 5 {
+            queue.entries[queue.slot(registration.token)].unwrap().context.operation.monotonicDeadline = 0 as Int64
+            let deadline = queue.nextCancellation(); ioRequire(deadline.isSome()); deadline.unwrap().free(); deadline.free()
+        }
+        ioRequire(queue.deviceRemoved(-19 as Int64) == (1 as UInt64))
+        ioRequire(queue.deviceRemoved(-19 as Int64) == (0 as UInt64))
+        if stop == 3 { ioMust(queue.cancel(registration.token)) }
+        ioRequire(queue.nativeActive == 1 and queue.ownedBytes == (64 as UInt64))
+        ioRequire(ioErrorIs(queue.close(), "async.limit"))
+        let rejected = queue.reserve(ioFixtureRequest(context)); ioRequire(rejected.isErr())
+        let owner: IoRejectedSubmission = rejected.unwrapErr(); rejected.releaseContainer()
+        ioRequire(owner.error.code == "io.device_removed" and not owner.error.retryable); ioMust(owner.release())
+    }
+    ioMust(queue.complete(registration.token, bytes, status, native))
+    ioRequire(ioErrorIs(queue.complete(registration.token, bytes, status, native), "async.invalid"))
+    let completed = ioTake(queue); let outcome = completed.outcome()
+    ioRequire(completed.partial() == (bytes != (16 as UInt64)))
+    ioRequire(completed.request.resources.nativeResult == native)
+    if stop >= 3 { ioRequire(completed.request.nativeEvent.isSome() and completed.request.nativeEvent.unwrap() == (-19 as Int64)) }
+    if expected == "" { ioRequire(outcome.isOkay() and outcome.unwrap() == bytes) }
+    else {
+        ioRequire(outcome.isErr() and outcome.unwrapErr().code == expected and outcome.unwrapErr().progress == bytes)
+        ioRequire(not outcome.unwrapErr().retryable); outcome.unwrapErr().free()
+    }
+    outcome.releaseContainer(); ioMust(completed.release()); registration.free(); ioMust(queue.release()); executorReleaseContext(context)
+}
+fun main() r: Int {
+    ioRequire(uringStatus(-19 as Int64) == IO_DEVICE_REMOVED_STATUS and uringStatus(-6 as Int64) == IO_DEVICE_REMOVED_STATUS)
+    ioRequire(macosIoStatus(-19 as Int64) == IO_DEVICE_REMOVED_STATUS and macosIoStatus(-6 as Int64) == IO_DEVICE_REMOVED_STATUS)
+    ioRequire(iocpStatus(1167 as UInt32) == IO_DEVICE_REMOVED_STATUS and iocpStatus(55 as UInt32) == IO_DEVICE_REMOVED_STATUS and iocpStatus(433 as UInt32) == IO_DEVICE_REMOVED_STATUS)
+    ioRequire(uringStatus(-5 as Int64) != IO_DEVICE_REMOVED_STATUS and macosIoStatus(-5 as Int64) != IO_DEVICE_REMOVED_STATUS and iocpStatus(5 as UInt32) != IO_DEVICE_REMOVED_STATUS)
+    adverseCompletion(0 as Int32, 5 as Int64, 5 as UInt64, "", 0)
+    adverseCompletion(0 as Int32, 0 as Int64, 0 as UInt64, "", 0)
+    adverseCompletion(uringStatus(-19 as Int64), -19 as Int64, 5 as UInt64, "io.device_removed", 0)
+    adverseCompletion(macosIoStatus(-6 as Int64), -6 as Int64, 0 as UInt64, "io.device_removed", 0)
+    adverseCompletion(iocpStatus(1167 as UInt32), 1167 as Int64, 16 as UInt64, "io.device_removed", 0)
+    adverseCompletion(uringStatus(-5 as Int64), -5 as Int64, 5 as UInt64, "async.unavailable", 0)
+    adverseCompletion(iocpStatus(995 as UInt32), 995 as Int64, 5 as UInt64, "async.cancelled", 0)
+    adverseCompletion(0 as Int32, 5 as Int64, 5 as UInt64, "async.cancelled", 1)
+    adverseCompletion(0 as Int32, 5 as Int64, 5 as UInt64, "async.timeout", 2)
+    adverseCompletion(0 as Int32, 5 as Int64, 5 as UInt64, "io.device_removed", 3)
+    adverseCompletion(0 as Int32, 5 as Int64, 5 as UInt64, "async.cancelled", 4)
+    adverseCompletion(0 as Int32, 5 as Int64, 5 as UInt64, "async.timeout", 5)
+    println("PASS: IO-002E backend error matrix partial EOF and first-observed terminal reason")
+    let context = ioContext(); let queue = adverseQueue()
+    let queued: IoRegistration = ioMust(queue.reserve(ioFixtureRequest(context)))
+    ioRequire(queue.deviceRemoved(1167 as Int64) == (1 as UInt64) and queue.nativeActive == 0)
+    let removed = ioTake(queue); ioRequire(ioErrorIs(removed.outcome(), "io.device_removed")); ioMust(removed.release()); queued.free(); ioMust(queue.release())
+    let zeroEvent = adverseQueue(); let zeroToken: IoRegistration = ioMust(zeroEvent.reserve(ioFixtureRequest(context)))
+    ioRequire(zeroEvent.deviceRemoved(0 as Int64) == (1 as UInt64))
+    let zero = ioTake(zeroEvent); ioRequire(zero.request.nativeEvent.isSome() and zero.request.nativeEvent.unwrap() == (0 as Int64))
+    ioRequire(ioErrorIs(zero.outcome(), "io.device_removed")); ioMust(zero.release()); zeroToken.free(); ioMust(zeroEvent.release())
+    let preparing = adverseQueue(); let prepared: IoRegistration = ioMust(preparing.reserve(ioFixtureRequest(context)))
+    let view: IoSubmissionView = ioMust(preparing.submission(prepared.token)); ioRequire(preparing.deviceRemoved(-6 as Int64) == (1 as UInt64))
+    ioRequire(preparing.terminalCount == 0 and preparing.ownedBytes == (64 as UInt64)); view.free()
+    ioRequire(ioErrorIs(preparing.submitted(prepared.token), "io.device_removed"))
+    ioRequire(preparing.nativeActive == 0 and preparing.terminalCount == 1)
+    let stopped = ioTake(preparing); ioRequire(ioErrorIs(stopped.outcome(), "io.device_removed")); ioMust(stopped.release())
+    prepared.free(); ioMust(preparing.release()); executorReleaseContext(context)
+    println("PASS: IO-002E device event does not acknowledge preparing or native borrows")
+    let baseline = seen_memory_used_bytes(); var i = 0
+    while i < 1000 {
+        adverseCompletion(0 as Int32, 7 as Int64, 7 as UInt64, "io.device_removed", 3)
+        ioRequire(seen_memory_used_bytes() == baseline); i = i + 1
+    }
+    println("PASS: IO-002E late acknowledgement allocation baseline")
+    println("{\"schema\":\"seen-io-adverse-v1\",\"classification\":\"verified\",\"scope\":\"completion-model\",\"device_hot_unplug_verified\":false,\"automatic_retries\":0}")
+    return 0
+}

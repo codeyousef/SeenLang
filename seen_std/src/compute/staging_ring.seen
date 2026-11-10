@@ -1,0 +1,205 @@
+/// Creator-confined staging byte-range bookkeeping. This module owns no host
+/// or device storage. A transfer engine must supply the pinned backing span,
+/// submit work, and pass only its private native timeline's observed value.
+import compute.error.{GpuError, gpuFailure}
+import compute.limits.{GPU_MAX_RESOURCES}
+import compute.resource_ranges.{GpuRangeSet}
+import compute.operation.{gpuCheckOperation}
+import core.operation_context.{OperationContext}
+import core.result.{Result, Ok, Err}
+import memory.allocation.{allocationBudgetAvailable}
+
+let GPU_STAGING_MAX_SEQUENCE: UInt64 = 9223372036854775807 as UInt64
+let GPU_STAGING_FREE: Int = 0
+let GPU_STAGING_RESERVED: Int = 1
+let GPU_STAGING_SUBMITTED: Int = 2
+let GPU_STAGING_COMPLETED: Int = 3
+
+class GpuStagingSlot {
+    var offset: UInt64
+    var bytes: UInt64
+    var sequence: UInt64
+    var generation: UInt64
+    var state: Int
+}
+class GpuStagingCore {
+    var ranges: GpuRangeSet
+    var slots: Array<GpuStagingSlot>
+    var occupiedBytes: UInt64
+    var borrowers: Int
+    var inFlight: Int
+    var lastSubmitted: UInt64
+    var lastCompleted: UInt64
+    var closed: Bool
+
+    fun validSlot(index: Int, generation: UInt64) r: Bool {
+        if this.closed or index < 0 or index >= this.slots.length() { return false }
+        let slot = this.slots[index]
+        return slot.state != GPU_STAGING_FREE and slot.generation == generation
+    }
+    fun availableSlot() r: Int {
+        var index = 0
+        while index < this.slots.length() {
+            let slot = this.slots[index]
+            if slot.state == GPU_STAGING_FREE and slot.generation < GPU_STAGING_MAX_SEQUENCE { return index }
+            index = index + 1
+        }
+        return -1
+    }
+    fun closeSlot(index: Int, generation: UInt64) r: Result<Bool, GpuError> {
+        if not this.validSlot(index, generation) {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.staging.close", "staging ticket identity is stale"))
+        }
+        let slot = this.slots[index]
+        if slot.state == GPU_STAGING_SUBMITTED {
+            return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.staging.close", "submitted staging storage must remain owned until native completion"))
+        }
+        // Native completion permits host consumption; it does not acknowledge
+        // that consumption. Both reserved and completed ranges stay occupied
+        // until their ticket closes, so unread download bytes cannot alias a
+        // later reservation even when spare metadata slots are available.
+        if slot.state == GPU_STAGING_RESERVED or slot.state == GPU_STAGING_COMPLETED {
+            let recycled = this.ranges.recycle(slot.offset, slot.bytes)
+            if recycled.isErr() { return recycled }
+            recycled.releaseContainer(); this.occupiedBytes = this.occupiedBytes - slot.bytes
+        }
+        slot.state = GPU_STAGING_FREE; slot.sequence = 0 as UInt64
+        slot.offset = 0 as UInt64; slot.bytes = 0 as UInt64
+        if slot.generation < GPU_STAGING_MAX_SEQUENCE { slot.generation = slot.generation + (1 as UInt64) }
+        this.borrowers = this.borrowers - 1
+        return Ok<Bool, GpuError>(true)
+    }
+    /// The completion value belongs to one private, monotonically increasing
+    /// native timeline. Values beyond this owner's admitted work fail closed.
+    fun complete(observed: UInt64) r: Result<Bool, GpuError> {
+        if this.closed or observed < this.lastCompleted or observed > this.lastSubmitted {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.staging.complete", "staging completion is stale or exceeds submitted work"))
+        }
+        if observed == this.lastCompleted { return Ok<Bool, GpuError>(false) }
+        var index = 0; var progress = 0 as UInt64
+        while index < this.slots.length() {
+            let slot = this.slots[index]
+            if slot.state == GPU_STAGING_SUBMITTED and slot.sequence <= observed {
+                progress = progress + slot.bytes; slot.state = GPU_STAGING_COMPLETED
+                this.inFlight = this.inFlight - 1
+            }
+            index = index + 1
+        }
+        this.lastCompleted = observed
+        return Ok<Bool, GpuError>(progress > (0 as UInt64))
+    }
+    fun close() r: Result<Bool, GpuError> {
+        if this.closed { return Ok<Bool, GpuError>(false) }
+        if this.borrowers != 0 or this.inFlight != 0 {
+            return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.staging.close", "staging tickets still borrow their owner"))
+        }
+        let closed = this.ranges.release()
+        if closed.isErr() { return closed }
+        closed.releaseContainer(); var index = 0
+        while index < this.slots.length() { this.slots[index].free(); index = index + 1 }
+        this.slots.free(); this.closed = true
+        return Ok<Bool, GpuError>(true)
+    }
+}
+
+@move
+class GpuStagingSlice {
+    var core: GpuStagingCore
+    var slot: Int
+    var generation: UInt64
+    var offset: UInt64
+    var bytes: UInt64
+    var active: Bool
+
+    fun isComplete() r: Bool {
+        if not this.active or not this.core.validSlot(this.slot, this.generation) { return false }
+        return this.core.slots[this.slot].state == GPU_STAGING_COMPLETED
+    }
+    /// Validate the signal before native submission. Creator confinement keeps
+    /// it stable until submitted() records an accepted native queue operation.
+    fun nextSignal() r: Result<UInt64, GpuError> {
+        if not this.active or not this.core.validSlot(this.slot, this.generation) or
+            this.core.slots[this.slot].state != GPU_STAGING_RESERVED {
+            return Err<UInt64, GpuError>(gpuFailure("gpu.invalid", "gpu.staging.submit", "staging ticket is not reserved for submission"))
+        }
+        if this.core.lastSubmitted >= GPU_STAGING_MAX_SEQUENCE {
+            return Err<UInt64, GpuError>(gpuFailure("gpu.limit", "gpu.staging.submit", "staging timeline sequence is exhausted"))
+        }
+        return Ok<UInt64, GpuError>(this.core.lastSubmitted + (1 as UInt64))
+    }
+    /// Record only accepted work. Cancellation after native queue acceptance
+    /// must not skip this transition or recycle storage before completion.
+    fun submitted(sequence: UInt64) r: Result<Bool, GpuError> {
+        let expected = this.nextSignal()
+        if expected.isErr() { let error = expected.unwrapErr(); expected.releaseContainer(); return Err<Bool, GpuError>(error) }
+        let value = expected.unwrap(); expected.releaseContainer()
+        if sequence != value {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.staging.submit", "staging signal must advance its private timeline exactly once"))
+        }
+        let slot = this.core.slots[this.slot]; slot.sequence = sequence; slot.state = GPU_STAGING_SUBMITTED
+        this.core.lastSubmitted = sequence; this.core.inFlight = this.core.inFlight + 1
+        return Ok<Bool, GpuError>(true)
+    }
+    fun close() r: Result<Bool, GpuError> {
+        if not this.active { return Ok<Bool, GpuError>(false) }
+        let closed = this.core.closeSlot(this.slot, this.generation)
+        if closed.isErr() { return closed }
+        closed.releaseContainer(); this.active = false
+        return Ok<Bool, GpuError>(true)
+    }
+    fun release() r: Result<Bool, GpuError> {
+        let closed = this.close()
+        if closed.isErr() { return closed }
+        closed.releaseContainer(); this.free(); return Ok<Bool, GpuError>(true)
+    }
+}
+
+@move
+class GpuStagingRing {
+    var core: GpuStagingCore
+
+    static fun create(capacity: UInt64, slots: Int) r: Result<GpuStagingRing, GpuError> {
+        if slots <= 0 or slots > GPU_MAX_RESOURCES or not allocationBudgetAvailable(8192 + 96 * (slots + 1)) {
+            return Err<GpuStagingRing, GpuError>(gpuFailure("gpu.limit", "gpu.staging.create", "staging ticket or metadata budget exceeds its bound"))
+        }
+        let created = GpuRangeSet.create(capacity, slots + 1)
+        if created.isErr() { let error = created.unwrapErr(); created.releaseContainer(); return Err<GpuStagingRing, GpuError>(error) }
+        let ranges = created.unwrap(); created.releaseContainer()
+        let prepared = ranges.prepare(slots + 1)
+        if prepared.isErr() { let error = prepared.unwrapErr(); prepared.releaseContainer(); let closed = ranges.release(); closed.releaseContainer(); return Err<GpuStagingRing, GpuError>(error) }
+        prepared.releaseContainer(); let records = Array<GpuStagingSlot>(); var index = 0
+        while index < slots {
+            records.push(GpuStagingSlot{offset: 0 as UInt64, bytes: 0 as UInt64,
+                sequence: 0 as UInt64, generation: 1 as UInt64, state: GPU_STAGING_FREE})
+            index = index + 1
+        }
+        return Ok<GpuStagingRing, GpuError>(GpuStagingRing{core: GpuStagingCore{ranges: ranges, slots: records,
+            occupiedBytes: 0 as UInt64, borrowers: 0, inFlight: 0,
+            lastSubmitted: 0 as UInt64, lastCompleted: 0 as UInt64, closed: false}})
+    }
+    fun reserve(bytes: UInt64, alignment: UInt64, operation: OperationContext) r: Result<GpuStagingSlice, GpuError> {
+        let checked = gpuCheckOperation(operation, "gpu.staging.reserve")
+        if checked.isErr() { let error = checked.unwrapErr(); checked.releaseContainer(); return Err<GpuStagingSlice, GpuError>(error) }
+        checked.releaseContainer()
+        if this.core.closed { return Err<GpuStagingSlice, GpuError>(gpuFailure("gpu.invalid", "gpu.staging.reserve", "staging owner is closed")) }
+        let index = this.core.availableSlot()
+        if index < 0 or not allocationBudgetAvailable(4096) {
+            return Err<GpuStagingSlice, GpuError>(gpuFailure("gpu.limit", "gpu.staging.reserve", "staging tickets or metadata budget exhausted"))
+        }
+        let reserved = this.core.ranges.reserve(bytes, alignment)
+        if reserved.isErr() { let error = reserved.unwrapErr(); reserved.releaseContainer(); return Err<GpuStagingSlice, GpuError>(error) }
+        let range = reserved.unwrap(); reserved.releaseContainer(); let slot = this.core.slots[index]
+        slot.offset = range.offset; slot.bytes = range.bytes; slot.state = GPU_STAGING_RESERVED
+        range.free(); this.core.occupiedBytes = this.core.occupiedBytes + bytes
+        this.core.borrowers = this.core.borrowers + 1
+        return Ok<GpuStagingSlice, GpuError>(GpuStagingSlice{core: this.core, slot: index, generation: slot.generation,
+            offset: slot.offset, bytes: slot.bytes, active: true})
+    }
+    fun complete(observed: UInt64) r: Result<Bool, GpuError> { return this.core.complete(observed) }
+    fun close() r: Result<Bool, GpuError> { return this.core.close() }
+    fun release() r: Result<Bool, GpuError> {
+        let closed = this.close()
+        if closed.isErr() { return closed }
+        closed.releaseContainer(); this.core.free(); this.free(); return Ok<Bool, GpuError>(true)
+    }
+}

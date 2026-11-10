@@ -1,0 +1,92 @@
+import compute.vulkan_staging.{GpuVulkanStagingRing, GpuVulkanStagingTicket, gpuVkStagingUpload, gpuVkStagingDownload}
+import compute.buffer.{GpuBuffer}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.error.{GpuError}
+import core.result.{Result}
+import inference.span.{Span, MutableSpan}
+import memory.aligned_buffer.{OwnedBuffer}
+import vulkan_mapping_fixture_support.{mappingWorld}
+import provider_fixture_support.{completed}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+
+fun stagingReject(result: Result<Bool, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("invalid staging operation succeeded") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code { println(error.code); abort("staging rejection changed") }
+    error.release()
+}
+fun stagingRejectOpen(result: Result<GpuVulkanStagingRing, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("invalid staging construction succeeded") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code { println(error.code); abort("staging constructor rejection changed") }
+    error.release()
+}
+fun stagingRejectReserve(result: Result<GpuVulkanStagingTicket, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("invalid staging reservation succeeded") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code { println(error.code); abort("staging reservation rejection changed") }
+    error.release()
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics()
+    let world = mappingWorld(GpuMemoryKind.DeviceLocal); let op = world.operation
+    stagingRejectOpen(GpuVulkanStagingRing.open(world.context, 1024 as UInt64, 64 as UInt64, 0, op), "gpu.limit")
+    stagingRejectOpen(GpuVulkanStagingRing.open(world.context, 1024 as UInt64, 64 as UInt64, 257, op), "gpu.limit")
+    stagingRejectOpen(GpuVulkanStagingRing.open(world.context, 1024 as UInt64, 0 as UInt64, 2, op), "gpu.limit")
+    stagingRejectOpen(GpuVulkanStagingRing.open(world.context, 1024 as UInt64, 18446744073709551615 as UInt64, 2, op), "gpu.limit")
+    stagingRejectOpen(GpuVulkanStagingRing.open(world.context, 0 as UInt64, 64 as UInt64, 2, op), "gpu.limit")
+    op.cancellation = true
+    stagingRejectOpen(GpuVulkanStagingRing.open(world.context, 1024 as UInt64, 64 as UInt64, 2, op), "gpu.cancelled")
+    op.cancellation = false
+    let opened = GpuVulkanStagingRing.open(world.context, 1024 as UInt64, 64 as UInt64, 2, op)
+    if opened.isErr() { abort("adverse staging setup failed") }
+    let ring = opened.unwrap(); opened.releaseContainer()
+    stagingRejectReserve(ring.reserve(0 as UInt64, op), "gpu.invalid")
+    stagingRejectReserve(ring.reserve(65 as UInt64, op), "gpu.invalid")
+    op.cancellation = true
+    stagingRejectReserve(ring.reserve(1 as UInt64, op), "gpu.cancelled")
+    op.cancellation = false; op.monotonicDeadline = 1 as Int64
+    stagingRejectReserve(ring.reserve(1 as UInt64, op), "gpu.timeout")
+    op.monotonicDeadline = 9223372036854775807 as Int64
+    let reserved = ring.reserve(32 as UInt64, op)
+    if reserved.isErr() { abort("adverse staging ticket unavailable") }
+    let ticket = reserved.unwrap(); reserved.releaseContainer()
+    let allocated = GpuBuffer<UInt8>.allocate(world.allocator, 64 as UInt64, 1 as UInt64, 256 as UInt64, op)
+    if allocated.isErr() { abort("adverse device bytes unavailable") }
+    let device = allocated.unwrap(); allocated.releaseContainer()
+    let owned = OwnedBuffer<UInt8>.allocate(64 as UInt64, 1 as UInt64, 64 as UInt64)
+    if owned.isErr() { abort("adverse host bytes unavailable") }
+    let host = owned.unwrap(); owned.releaseContainer()
+    var index = 0 as UInt64
+    while index < (64 as UInt64) { host.data[index] = index as UInt8; index = index + (1 as UInt64) }
+    let half = Span<UInt8>{data: host.data as *const UInt8, length: 16 as UInt64}
+    let target = MutableSpan<UInt8>{data: host.data, length: 32 as UInt64}
+    stagingReject(ticket.poll(), "gpu.invalid")
+    stagingReject(ticket.read(target, 0 as UInt64, op), "gpu.invalid")
+    stagingReject(ticket.write(Span<UInt8>{data: null as *const UInt8, length: 1 as UInt64}, 0 as UInt64, op), "gpu.invalid")
+    stagingReject(ticket.write(Span<UInt8>{data: (18446744073709551614 as UInt64) as *const UInt8, length: 4 as UInt64}, 0 as UInt64, op), "gpu.invalid")
+    stagingReject(ticket.write(Span<UInt8>{data: host.data as *const UInt8, length: 0 as UInt64}, 0 as UInt64, op), "gpu.invalid")
+    stagingReject(ticket.write(half, 1 as UInt64, op), "gpu.invalid")
+    completed(ticket.write(half, 0 as UInt64, op), true)
+    stagingReject(gpuVkStagingUpload(ticket, device, 0 as UInt64, op), "gpu.invalid")
+    stagingReject(ticket.write(half, 17 as UInt64, op), "gpu.invalid")
+    stagingReject(ticket.write(half, 33 as UInt64, op), "gpu.invalid")
+    op.cancellation = true
+    stagingReject(ticket.write(half, 16 as UInt64, op), "gpu.cancelled")
+    op.cancellation = false
+    completed(ticket.write(half, 16 as UInt64, op), true)
+    stagingReject(gpuVkStagingUpload(ticket, device, 33 as UInt64, op), "gpu.invalid")
+    if not ticket.reserved() or ticket.initialized != (32 as UInt64) { abort("rejected staging operation consumed its owner") }
+    completed(ticket.close(), true); completed(ticket.close(), false)
+    stagingReject(ticket.write(half, 0 as UInt64, op), "gpu.invalid")
+    stagingReject(gpuVkStagingDownload(ticket, device, 0 as UInt64, op), "gpu.invalid")
+    completed(ticket.release(), true)
+    completed(ring.close(), true)
+    stagingRejectReserve(ring.reserve(1 as UInt64, op), "gpu.invalid")
+    completed(ring.release(), true); completed(device.release(), true)
+    host.close(); host.free(); world.release()
+    if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics { abort("adverse staging retained ownership") }
+    println("PASS: owned staging geometry span cancellation deadline closed-state and cold cleanup")
+    return 0
+}

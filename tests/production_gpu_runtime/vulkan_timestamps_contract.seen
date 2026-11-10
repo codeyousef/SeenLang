@@ -1,0 +1,180 @@
+import compute.vulkan_timestamps.{GpuVulkanTimestampPool, GpuVulkanTimestampSample, VulkanTimestampPoolInfo, gpuVkTimestampElapsed, gpuVkTimestampNanoseconds, vkGetQueryPoolResults}
+import compute.vulkan_provider.{GpuVulkanProvider, openVulkanDevice}
+import compute.vulkan_pipeline_device.{GpuVulkanPipelineDevice}
+import compute.vulkan_stream.{GpuVulkanStream}
+import compute.vulkan_transfer_abi.{VulkanCopyPoolInfo, VulkanCopyAllocateInfo, VulkanCopyBeginInfo, vkCreateCommandPool, vkDestroyCommandPool, vkAllocateCommandBuffers, vkBeginCommandBuffer, vkEndCommandBuffer}
+import compute.vulkan_native.{vkGetPhysicalDeviceQueueFamilyProperties}
+import compute.vulkan_abi.{gpuVkAllocate, gpuVkDrop}
+import compute.allocator.{GpuAllocator}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.device_info.{GpuDeviceKind}
+import compute.error.{GpuError}
+import compute.limits.{GpuLimits}
+import core.result.{Result}
+import device_fixture_support.{operation, releaseOperation, gpuFixtureRejected}
+import provider_fixture_support.{completed}
+import env.env.{args, releaseArgs, set}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+
+fun timestampTake<T>(result: Result<T, GpuError>) r: T {
+    if result.isErr() { println(result.unwrapErr().code); println(result.unwrapErr().message); abort("native timestamp fixture operation failed") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun timestampReject<T>(result: Result<T, GpuError>, code: String, progress: UInt64) r: Void {
+    if result.isOkay() { abort("invalid timestamp operation succeeded") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code or error.progress != progress { println(error.code); abort("timestamp failure lost diagnostic or submitted progress") }; error.release()
+}
+fun timestampNative(status: Int32) r: Void { if status != (0 as Int32) { abort("timestamp fixture SDK command setup failed") } }
+fun timestampFinish(borrow pool: GpuVulkanTimestampPool, borrow sample: GpuVulkanTimestampSample) r: Void {
+    var fuel = 1000000
+    while fuel > 0 { let ready = timestampTake<Bool>(pool.poll(sample)); if ready { return }; fuel = fuel - 1 }
+    abort("bounded native timestamp poll fuel exhausted")
+}
+fun timestampUnchanged(borrow sample: GpuVulkanTimestampSample) r: Void {
+    if sample.startTicks != (17 as UInt64) or sample.endTicks != (23 as UInt64) or sample.elapsedTicks != (6 as UInt64) or sample.elapsedNanoseconds != 12.0 or not sample.ready { abort("pending timestamp observation mutated caller sample") }
+}
+fun timestampSentinel(borrow sample: GpuVulkanTimestampSample) r: Void {
+    sample.startTicks = 17 as UInt64; sample.endTicks = 23 as UInt64; sample.elapsedTicks = 6 as UInt64; sample.elapsedNanoseconds = 12.0; sample.ready = true
+}
+fun timestampArithmetic() r: Void {
+    if gpuVkTimestampElapsed(0 as UInt64, 0 as UInt64, 1) != (0 as UInt64) or gpuVkTimestampElapsed(1 as UInt64, 0 as UInt64, 1) != (1 as UInt64) { abort("one-bit timestamp wrap differs") }
+    if gpuVkTimestampElapsed(250 as UInt64, 3 as UInt64, 8) != (9 as UInt64) or gpuVkTimestampElapsed(506 as UInt64, 259 as UInt64, 8) != (9 as UInt64) { abort("timestamp low-bit masking or wrap differs") }
+    if gpuVkTimestampElapsed(9223372036854775806 as UInt64, 1 as UInt64, 63) != (3 as UInt64) { abort("63-bit timestamp wrap differs") }
+    if gpuVkTimestampElapsed(18446744073709551614 as UInt64, 1 as UInt64, 64) != (3 as UInt64) or gpuVkTimestampElapsed(0 as UInt64, 18446744073709551615 as UInt64, 64) != (18446744073709551615 as UInt64) { abort("full UInt64 timestamp precision was lost") }
+    if gpuVkTimestampElapsed(9223372036854775808 as UInt64, 9223372036854775813 as UInt64, 64) != (5 as UInt64) { abort("high-bit timestamp became signed") }
+    if gpuVkTimestampNanoseconds(9223372036854775808 as UInt64, 0.5) != 4611686018427387904.0 or gpuVkTimestampNanoseconds(18446744073709551615 as UInt64, 1.0) != 18446744073709551616.0 { abort("UInt64 timestamp conversion became signed") }
+    // Seen repr(C) storage is checked against independently SDK-asserted offsets.
+    let abi = VulkanTimestampPoolInfo{sType: 11 as UInt32, pNext: null as *Void, flags: 0 as UInt32, queryType: 2 as UInt32, queryCount: 2 as UInt32, pipelineStatistics: 0 as UInt32}
+    let words = (&abi) as *UInt32; let pointers = (&abi) as *UInt64
+    if words[0] != (11 as UInt32) or pointers[1] != (0 as UInt64) or words[4] != (0 as UInt32) or words[5] != (2 as UInt32) or words[6] != (2 as UInt32) or words[7] != (0 as UInt32) { abort("Seen query pool info differs from SDK ABI") }
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics(); timestampArithmetic()
+    let arguments = args()
+    if arguments.length() != 2 and arguments.length() != 3 { abort("timestamp fixture requires software-reference or rtx4090, optional --faults") }
+    let hardware = arguments[1] == "rtx4090"
+    if not hardware and arguments[1] != "software-reference" { abort("timestamp device class must be explicit") }
+    let faults = arguments.length() == 3
+    if faults and arguments[2] != "--faults" { abort("unknown timestamp fixture argument") }
+    let op = operation(); let limits = GpuLimits.bounded(8, 4, 128, 1048576 as UInt64)
+    let provider = timestampTake<GpuVulkanProvider>(GpuVulkanProvider.discover(op, limits, not hardware)); var selected = -1; var index = 0
+    while index < provider.catalog.devices.length() {
+        let info = provider.catalog.devices[index]
+        if hardware { if info.kind == GpuDeviceKind.Discrete and info.name.contains("RTX 4090") { selected = index } }
+        else if info.kind == GpuDeviceKind.Software { selected = index }; index = index + 1
+    }
+    if selected < 0 { abort("designated timestamp device unavailable; no fallback") }
+    let physical = timestampTake<GpuVulkanPipelineDevice>(GpuVulkanPipelineDevice.capture(provider, selected))
+    let device = timestampTake(openVulkanDevice(provider, selected, op)); let context = timestampTake(device.createContext(op))
+    let allocator = timestampTake<GpuAllocator>(GpuAllocator.create(context, GpuMemoryKind.HostCoherent, 4096 as UInt64, 2, op))
+    let stream = timestampTake<GpuVulkanStream>(GpuVulkanStream.open(allocator, 2, op))
+    op.cancellation = true; timestampReject<GpuVulkanTimestampPool>(GpuVulkanTimestampPool.open(allocator, stream, physical, op), "gpu.cancelled", 0 as UInt64); op.cancellation = false
+    op.monotonicDeadline = seen_time_monotonic_nanos() - (1 as Int64); timestampReject<GpuVulkanTimestampPool>(GpuVulkanTimestampPool.open(allocator, stream, physical, op), "gpu.timeout", 0 as UInt64); op.monotonicDeadline = 9223372036854775807 as Int64
+    let otherContext = timestampTake(device.createContext(op)); let otherAllocator = timestampTake<GpuAllocator>(GpuAllocator.create(otherContext, GpuMemoryKind.HostCoherent, 4096 as UInt64, 2, op))
+    timestampReject<GpuVulkanTimestampPool>(GpuVulkanTimestampPool.open(otherAllocator, stream, physical, op), "gpu.invalid", 0 as UInt64)
+    completed(otherAllocator.release(), true); completed(otherContext.release(), true)
+    let family = physical.queueFamily; physical.queueFamily = 4294967295 as UInt32
+    timestampReject<GpuVulkanTimestampPool>(GpuVulkanTimestampPool.open(allocator, stream, physical, op), "gpu.invalid", 0 as UInt64); physical.queueFamily = family
+    let ordinal = physical.ordinal; physical.ordinal = -1
+    timestampReject<GpuVulkanTimestampPool>(GpuVulkanTimestampPool.open(allocator, stream, physical, op), "gpu.invalid", 0 as UInt64); physical.ordinal = ordinal
+    let propertyWords = physical.metadata.buffers[0].data as *UInt32; let nativePeriod = propertyWords[184]
+    let invalidPeriods = [0 as UInt32, 2147483648 as UInt32, 2139095040 as UInt32, 2143289344 as UInt32, 3212836864 as UInt32]; index = 0
+    while index < invalidPeriods.length() { propertyWords[184] = invalidPeriods[index]; timestampReject<GpuVulkanTimestampPool>(GpuVulkanTimestampPool.open(allocator, stream, physical, op), "gpu.unsupported_capability", 0 as UInt64); index = index + 1 }
+    invalidPeriods.free(); propertyWords[184] = nativePeriod
+    if faults {
+        let before = stream.core.borrowers
+        set("SEEN_VULKAN_FIXTURE_FAULT", "timestamp-create-failed-output")
+        timestampReject<GpuVulkanTimestampPool>(GpuVulkanTimestampPool.open(allocator, stream, physical, op), "gpu.out_of_memory", 0 as UInt64)
+        set("SEEN_VULKAN_FIXTURE_FAULT", "timestamp-create-null")
+        timestampReject<GpuVulkanTimestampPool>(GpuVulkanTimestampPool.open(allocator, stream, physical, op), "gpu.invalid", 0 as UInt64)
+        set("SEEN_VULKAN_FIXTURE_FAULT", "timestamp-bits-zero")
+        timestampReject<GpuVulkanTimestampPool>(GpuVulkanTimestampPool.open(allocator, stream, physical, op), "gpu.unsupported_capability", 0 as UInt64)
+        set("SEEN_VULKAN_FIXTURE_FAULT", "timestamp-bits-invalid")
+        timestampReject<GpuVulkanTimestampPool>(GpuVulkanTimestampPool.open(allocator, stream, physical, op), "gpu.unsupported_capability", 0 as UInt64)
+        set("SEEN_VULKAN_FIXTURE_FAULT", "")
+        if stream.core.borrowers != before { abort("partial timestamp construction leaked stream retention") }
+    }
+    let pool = timestampTake<GpuVulkanTimestampPool>(GpuVulkanTimestampPool.open(allocator, stream, physical, op)); let sample = GpuVulkanTimestampSample.empty()
+    if sample.ready or sample.startTicks != (0 as UInt64) or sample.endTicks != (0 as UInt64) or sample.elapsedTicks != (0 as UInt64) or sample.elapsedNanoseconds != 0.0 { abort("empty timestamp sample is not empty") }
+    gpuFixtureRejected(pool.poll(sample), "gpu.invalid")
+    op.cancellation = true; gpuFixtureRejected(pool.retainGraph(op), "gpu.cancelled"); op.cancellation = false
+    completed(pool.retainGraph(op), true); gpuFixtureRejected(pool.retainGraph(op), "gpu.busy")
+    gpuFixtureRejected(pool.close(), "gpu.busy"); gpuFixtureRejected(pool.release(), "gpu.busy"); gpuFixtureRejected(stream.close(), "gpu.busy")
+    let commandInfo = VulkanCopyPoolInfo{sType: 39 as UInt32, pNext: null as *Void, flags: 0 as UInt32, queueFamilyIndex: family}
+    var commands = 0 as UInt64; timestampNative(vkCreateCommandPool(stream.core.device, (&commandInfo) as *const VulkanCopyPoolInfo, null as *Void, &commands))
+    let allocate = VulkanCopyAllocateInfo{sType: 40 as UInt32, pNext: null as *Void, commandPool: commands, level: 0 as UInt32, commandBufferCount: 1 as UInt32}
+    var command = 0 as UInt64; timestampNative(vkAllocateCommandBuffers(stream.core.device, (&allocate) as *const VulkanCopyAllocateInfo, &command))
+    let begin = VulkanCopyBeginInfo{sType: 42 as UInt32, pNext: null as *Void, flags: 0 as UInt32, inheritance: null as *Void}
+    timestampNative(vkBeginCommandBuffer(command, (&begin) as *const VulkanCopyBeginInfo)); pool.recordReset(command); pool.recordStart(command); pool.recordEnd(command); timestampNative(vkEndCommandBuffer(command))
+    let oracle = timestampTake(gpuVkAllocate(3072 as UInt64)); let ticks = oracle.data as *UInt64
+    var families = 0 as UInt32; vkGetPhysicalDeviceQueueFamilyProperties(physical.nativePhysical, &families, null as *UInt8)
+    if families == (0 as UInt32) or families > (128 as UInt32) or family >= families { abort("independent clock queue metadata is outside native bound") }
+    vkGetPhysicalDeviceQueueFamilyProperties(physical.nativePhysical, &families, oracle.data)
+    let queueWords = oracle.data as *UInt32
+    if pool.validBits != (queueWords[(family as Int) * 6 + 2] as Int) { abort("timestamp width differs from independent native queue metadata") }
+    let nativePeriods = physical.metadata.buffers[0].data as *Float32; let expectedPeriod = nativePeriods[184] as Float
+    if pool.period != expectedPeriod { abort("timestamp period differs from native physical metadata") }
+    let steady = seen_memory_used_bytes(); var cycle = 0
+    while cycle < 100 {
+        timestampSentinel(sample)
+        let sequence = timestampTake<UInt64>(stream.core.submit(command, op)); pool.markSubmitted(sequence)
+        if sequence != ((cycle + 1) as UInt64) or not pool.pending { abort("timestamp run is not bound to newly submitted timeline") }
+        gpuFixtureRejected(pool.close(), "gpu.busy")
+        if faults and cycle == 0 {
+            set("SEEN_VULKAN_FIXTURE_FAULT", "timestamp-pending"); completed(pool.poll(sample), false); timestampUnchanged(sample)
+            if not pool.pending or stream.core.inFlight != 1 { abort("pending clock query retired native ownership") }
+            set("SEEN_VULKAN_FIXTURE_FAULT", "")
+            var fuel = 1000000
+            while fuel > 0 { let done = timestampTake<Bool>(stream.poll(sequence)); if done { break }; fuel = fuel - 1 }
+            if fuel == 0 { abort("timestamp fault setup did not retire timeline") }
+            set("SEEN_VULKAN_FIXTURE_FAULT", "timestamp-unavailable"); completed(pool.poll(sample), false); timestampUnchanged(sample)
+            if pool.pending { abort("completed timeline retained timestamp pending state") }
+            pool.dropGraph(); completed(pool.retainGraph(op), true)
+            set("SEEN_VULKAN_FIXTURE_FAULT", "timestamp-zero-availability"); completed(pool.poll(sample), false); timestampUnchanged(sample)
+            set("SEEN_VULKAN_FIXTURE_FAULT", "timestamp-query-failed"); timestampReject<Bool>(pool.poll(sample), "gpu.unavailable", sequence); timestampUnchanged(sample)
+            set("SEEN_VULKAN_FIXTURE_FAULT", "")
+        }
+        op.cancellation = true; op.monotonicDeadline = seen_time_monotonic_nanos() - (1 as Int64)
+        timestampFinish(pool, sample)
+        op.cancellation = false; op.monotonicDeadline = 9223372036854775807 as Int64
+        if not sample.ready or pool.pending or stream.core.inFlight != 0 { abort("native timestamp completion did not publish and retire") }
+        // A second SDK call into independent caller-owned output is the native
+        // value oracle, not a positive number invented by the fixture.
+        timestampNative(vkGetQueryPoolResults(stream.core.device, pool.pool, 0 as UInt32, 2 as UInt32, 32 as UInt64, oracle.data as *Void, 16 as UInt64, 5 as UInt32))
+        var mask = 18446744073709551615 as UInt64
+        if pool.validBits < 64 { mask = ((1 as UInt64) << (pool.validBits as UInt32)) - (1 as UInt64) }
+        if ticks[1] == (0 as UInt64) or ticks[3] == (0 as UInt64) or sample.startTicks != (ticks[0] & mask) or sample.endTicks != (ticks[2] & mask) { abort("timestamp sample differs from independent SDK query") }
+        var expected = 0 as UInt64
+        if sample.endTicks >= sample.startTicks { expected = sample.endTicks - sample.startTicks } else { expected = mask - sample.startTicks + sample.endTicks + (1 as UInt64) }
+        if sample.elapsedTicks != expected or sample.elapsedNanoseconds < 0.0 or sample.elapsedNanoseconds != sample.elapsedNanoseconds { abort("native elapsed timestamp arithmetic differs") }
+        let expectedNanoseconds = (((expected >> (32 as UInt32)) as Float) * 4294967296.0 + ((expected & (4294967295 as UInt64)) as Float)) * expectedPeriod
+        if sample.elapsedNanoseconds != expectedNanoseconds { abort("timestamp nanoseconds differ from physical clock period") }
+        completed(pool.poll(sample), true)
+        if seen_memory_used_bytes() != steady { abort("reused timestamp pool allocated persistent operation metadata") }
+        cycle = cycle + 1
+    }
+    if faults {
+        timestampSentinel(sample)
+        let sequence = timestampTake<UInt64>(stream.core.submit(command, op)); pool.markSubmitted(sequence)
+        var fuel = 1000000
+        while fuel > 0 { let done = timestampTake<Bool>(stream.poll(sequence)); if done { break }; fuel = fuel - 1 }
+        if fuel == 0 { abort("timestamp device loss setup did not retire native work") }
+        set("SEEN_VULKAN_FIXTURE_FAULT", "timestamp-query-lost")
+        timestampReject<Bool>(pool.poll(sample), "gpu.device_lost", sequence); timestampUnchanged(sample)
+        set("SEEN_VULKAN_FIXTURE_FAULT", "")
+        if pool.pending or not stream.core.lost or not stream.core.poisoned { abort("timestamp query device loss retained retired work or validated output") }
+        pool.dropGraph(); gpuFixtureRejected(pool.retainGraph(op), "gpu.device_lost")
+    } else {
+        pool.dropGraph(); completed(pool.retainGraph(op), true); pool.dropGraph()
+    }
+    vkDestroyCommandPool(stream.core.device, commands, null as *Void); gpuVkDrop(oracle); sample.release()
+    completed(pool.close(), true); completed(pool.close(), false); gpuFixtureRejected(pool.retainGraph(op), "gpu.invalid"); completed(pool.release(), true)
+    completed(stream.release(), true); completed(allocator.release(), true); completed(context.release(), true); completed(device.release(), true)
+    physical.release(); limits.release(); releaseOperation(op); releaseArgs(arguments)
+    if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics { abort("timestamp lifecycle retained Seen owners") }
+    println("PASS: GPU-006F native timestamp period width exact wrap nonblocking availability reusable queries cancellation and cold cleanup")
+    return 0
+}

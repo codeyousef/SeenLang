@@ -1,3 +1,4 @@
+import codegen.source_coverage_state.{coverSourceStatement}
 // ir_stmt_driver.seen - recursive statement lowering dispatch.
 
 import parser.real_parser.{BlockNode, ParserExpressionNode, StatementNode}
@@ -5,7 +6,7 @@ import str.string.{StringBuilder}
 import codegen.ir_assignment_driver.{generateAssignmentExprState, generateAssignmentStatementState, generateMemberAssignmentState, generateIndexAssignmentState}
 import codegen.ir_block_driver.{generateBlockState}
 import codegen.ir_codegen_state.{getSharedCodegenState}
-import codegen.ir_codegen_feature_state.{applyStatementDriverFeatureStateImpl, getFeatureBoundsCheckEnabledImpl, getFeatureBoundsCheckLabelCountImpl, getFeatureClosureDefsImpl, getFeatureDeferCountImpl, getFeatureDeferExprsImpl, getFeatureDistinctTypeNamesImpl, getFeatureErrdeferCountImpl, getFeatureErrdeferExprsImpl, getFeatureErrdeferTempAllocaImpl, getFeatureInsideUnsafeImpl, getFeaturePforCountImpl, getFeatureTryCatchEndLabelImpl, getFeatureTryCatchLabelImpl, getFeatureWarnUnusedResultImpl, getFeatureRegBoxImpl, getFeatureBlockBoxImpl}
+import codegen.ir_codegen_feature_state.{applyStatementDriverFeatureStateImpl, appendFeatureGeneratedDefinitionImpl, getFeatureBoundsCheckEnabledImpl, getFeatureBoundsCheckLabelCountImpl, getFeatureDeferCountImpl, getFeatureDeferExprsImpl, getFeatureDistinctTypeNamesImpl, getFeatureErrdeferCountImpl, getFeatureErrdeferExprsImpl, getFeatureErrdeferTempAllocaImpl, getFeatureInsideUnsafeImpl, reserveFeatureParallelBodyIdImpl, getFeatureTryCatchEndLabelImpl, getFeatureTryCatchLabelImpl, getFeatureWarnUnusedResultImpl, getFeatureRegBoxImpl, getFeatureBlockBoxImpl}
 import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, setActiveVarCountWithGlobalStateImpl, getCurrentFunctionReturnTypeWithGlobalStateImpl, getCurrentLoopCondLabelWithGlobalStateImpl, getCurrentLoopEndLabelWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl, getGlobalFuncNamesImpl, getGlobalFuncRetTypesImpl}
 import codegen.ir_codegen_metrics_state.{g_branchesEliminated, g_deadStoreSkipVars, g_inductionVarName, g_loopsOptimized, g_mlUnrollThreshold, g_mlVectorizeThreshold, g_reductionChainsDetected}
 import codegen.ir_codegen_type_state.{mapTypeState}
@@ -38,14 +39,12 @@ class StatementDriverState {
     var tryCatchLabel: String
     var tryCatchEndLabel: String
     var insideUnsafe: Int
-    var pforCount: Int
-    var closureDefs: String
 
     static fun new(boundsCheckLabelCount: Int, branchesEliminated: Int,
         loopsOptimized: Int, reductionChainsDetected: Int,
         inductionVarName: String, errdeferTempAlloca: String,
-        tryCatchLabel: String, tryCatchEndLabel: String, insideUnsafe: Int,
-        pforCount: Int, closureDefs: String) r: StatementDriverState {
+        tryCatchLabel: String, tryCatchEndLabel: String,
+        insideUnsafe: Int) r: StatementDriverState {
 
         return StatementDriverState{
             boundsCheckLabelCount: boundsCheckLabelCount,
@@ -56,9 +55,7 @@ class StatementDriverState {
             errdeferTempAlloca: errdeferTempAlloca,
             tryCatchLabel: tryCatchLabel,
             tryCatchEndLabel: tryCatchEndLabel,
-            insideUnsafe: insideUnsafe,
-            pforCount: pforCount,
-            closureDefs: closureDefs
+            insideUnsafe: insideUnsafe
         }
     }
 }
@@ -72,8 +69,7 @@ fun generateStatementWithGlobalState(ctx: CodegenLoweringContext,
         g_branchesEliminated, g_loopsOptimized, g_reductionChainsDetected,
         g_inductionVarName, getFeatureErrdeferTempAllocaImpl(),
         getFeatureTryCatchLabelImpl(), getFeatureTryCatchEndLabelImpl(),
-        getFeatureInsideUnsafeImpl(), getFeaturePforCountImpl(),
-        getFeatureClosureDefsImpl())
+        getFeatureInsideUnsafeImpl())
     generateStatementState(ctx, output, stmt, varNames, varRegs, varTypes,
         stringConstants, getFeatureDeferCountImpl(), getFeatureDeferExprsImpl(),
         getFeatureErrdeferCountImpl(), getFeatureErrdeferExprsImpl(),
@@ -82,8 +78,7 @@ fun generateStatementWithGlobalState(ctx: CodegenLoweringContext,
         g_mlUnrollThreshold, g_mlVectorizeThreshold, state)
     applyStatementDriverFeatureStateImpl(state.boundsCheckLabelCount,
         state.errdeferTempAlloca, state.tryCatchLabel,
-        state.tryCatchEndLabel, state.insideUnsafe, state.pforCount,
-        state.closureDefs)
+        state.tryCatchEndLabel, state.insideUnsafe)
     g_branchesEliminated = state.branchesEliminated
     g_loopsOptimized = state.loopsOptimized
     g_reductionChainsDetected = state.reductionChainsDetected
@@ -169,8 +164,7 @@ fun generateRegionStatementState(ctx: CodegenLoweringContext,
 
 fun generateParallelForStatementState(ctx: CodegenLoweringContext,
     output: StringBuilder, stmt: StatementNode, varNames: Array<String>,
-    varRegs: Array<String>, varTypes: Array<String>,
-    state: StatementDriverState) r: Void {
+    varRegs: Array<String>, varTypes: Array<String>) r: Void {
 
     let rangeExpr = stmt.expression
     var startReg: String = ""
@@ -183,8 +177,7 @@ fun generateParallelForStatementState(ctx: CodegenLoweringContext,
         endReg = lowerExpression(ctx, rangeExpr)
     }
 
-    let pforIdx = state.pforCount
-    state.pforCount = state.pforCount + 1
+    let pforIdx = reserveFeatureParallelBodyIdImpl()
     let bodyFuncName = buildParallelForBodyFunctionNameImpl(pforIdx)
     let outerActiveCount = getBoundedActiveVarCountWithGlobalStateImpl(
         varNames)
@@ -253,9 +246,10 @@ fun generateParallelForStatementState(ctx: CodegenLoweringContext,
         nestedOutput.append("  ret i64 0\n")
     }
     nestedOutput.append("}\n\n")
-    state.closureDefs = state.closureDefs + nestedOutput.toString()
+    let definition = nestedOutput.toString()
 
     restoreLoweringNestedScratch(ctx, savedNestedState)
+    appendFeatureGeneratedDefinitionImpl(definition)
     var environmentReg: String = "null"
     if captureNames.length() > 0 {
         environmentReg = getNextRegFn(getFeatureRegBoxImpl())
@@ -399,8 +393,7 @@ fun generateUnsafeStatementState(ctx: CodegenLoweringContext,
     // builtins are reachable inside the block body.
     applyStatementDriverFeatureStateImpl(state.boundsCheckLabelCount,
         state.errdeferTempAlloca, state.tryCatchLabel,
-        state.tryCatchEndLabel, state.insideUnsafe, state.pforCount,
-        state.closureDefs)
+        state.tryCatchEndLabel, state.insideUnsafe)
     if stmt.thenBranch.statements.length() > 0 {
         lowerBlock(ctx, stmt.thenBranch)
     }
@@ -431,6 +424,7 @@ fun generateStatementState(ctx: CodegenLoweringContext,
     warnUnusedResult: Int, mlUnrollThreshold: Int,
     mlVectorizeThreshold: Int, state: StatementDriverState) r: Void {
 
+    coverSourceStatement(output, stmt.line, stmt.column)
     let dispatchAction = planStatementDispatchImpl(stmt.kind)
     if dispatchAction == 1 {
         generateLetStatementState(ctx, output, stmt, varNames, varRegs,
@@ -501,7 +495,7 @@ fun generateStatementState(ctx: CodegenLoweringContext,
     }
     if dispatchAction == 17 {
         generateParallelForStatementState(ctx, output, stmt, varNames,
-            varRegs, varTypes, state)
+            varRegs, varTypes)
     }
     if dispatchAction == 18 {
         output.append("  ; comptime block\n")

@@ -1,0 +1,25 @@
+/// Backend-independent scalar word algebra. Values are logical 32-bit words,
+/// signed integers, Float32 bits or normalized Boolean words; no device ABI.
+let SCALAR_BITCAST: Int = 1
+let SCALAR_FLOAT_TO_UINT: Int = 2
+let SCALAR_UINT_TO_FLOAT: Int = 3
+let SCALAR_ADD: Int = 4
+let SCALAR_SUBTRACT: Int = 5
+let SCALAR_MULTIPLY: Int = 6
+let SCALAR_FLOAT_MULTIPLY: Int = 7
+let SCALAR_SHIFT_RIGHT: Int = 8
+let SCALAR_SHIFT_LEFT: Int = 9
+let SCALAR_BIT_OR: Int = 10
+let SCALAR_BIT_XOR: Int = 11
+let SCALAR_BIT_AND: Int = 12
+let SCALAR_BOOL_OR: Int = 13
+let SCALAR_BOOL_AND: Int = 14
+let SCALAR_EQUAL: Int = 15
+let SCALAR_NOT_EQUAL: Int = 16
+let SCALAR_UNSIGNED_GREATER: Int = 17
+let SCALAR_UNSIGNED_GREATER_EQUAL: Int = 18
+let SCALAR_UNSIGNED_LESS: Int = 19
+let SCALAR_UNSIGNED_LESS_EQUAL: Int = 20
+let SCALAR_SIGNED_GREATER_EQUAL: Int = 21
+let SCALAR_SIGNED_LESS: Int = 22
+let SCALAR_SIGNED_LESS_EQUAL: Int = 23

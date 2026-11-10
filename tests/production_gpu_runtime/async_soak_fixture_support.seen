@@ -1,0 +1,184 @@
+import compute.vulkan_provider.{GpuVulkanProvider, openVulkanDevice}
+import compute.vulkan_pipeline_device.{GpuVulkanPipelineDevice}
+import compute.vulkan_pipeline_artifact.{GpuVulkanArtifact}
+import compute.vulkan_pipeline.{GpuVulkanPipeline}
+import compute.vulkan_graph.{GpuVulkanGraphNode, GpuVulkanCommandGraph}
+import compute.vulkan_timestamps.{GpuVulkanTimestampPool}
+import compute.vulkan_stream.{GpuVulkanStream}
+import compute.buffer.{GpuBuffer}
+import compute.buffer_region.{GpuBufferRegion}
+import compute.allocator.{GpuAllocator}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.device_info.{GpuDeviceKind}
+import compute.limits.{GpuLimits}
+import compute.vulkan_mapping.{gpuVkMapBuffer, GpuVulkanMappedRegion}
+import core.operation_context.{OperationContext}
+import core.option.{None}
+import core.result.{Result}
+import compute.error.{GpuError}
+import device_fixture_support.{operation, releaseOperation}
+import provider_fixture_support.{completed}
+import compute.device.{GpuDevice, GpuContext}
+import compute.vulkan_abi.{gpuVkU32}
+import json.builder.{seen_string_release_owned}
+import stress_fixture_support.{must}
+import io_stress_fixture_support.{IoStressProbe, handle, probe, awaitDispatch}
+import async.event_loop.{AsyncEventLoop}
+import async.structured.{AsyncOperationContext}
+import async.process_native.{seen_async_process_pipe}
+import async.streams.{AsyncByteSpan, AsyncFdStream}
+import memory.aligned_buffer.{OwnedBuffer}
+import reactor.reactor.{Interest}
+import async.io_lease.{AsyncIoLease}
+import io.file.{readText, size}
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun __ThreadYield() r: Void
+fun graphFTake<T>(result: Result<T, GpuError>) r: T {
+    if result.isErr() { let error = result.unwrapErr(); println(error.code); println(error.message); error.release(); result.releaseContainer(); abort("native soak GPU operation failed; no fallback") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun soakDeadline() r: Int64 {
+    let now = seen_time_monotonic_nanos()
+    if now < (0 as Int64) or now > (9223371976854775807 as Int64) { abort("async.limit: monotonic deadline overflow") }
+    return now + (60000000000 as Int64)
+}
+fun graphFMap(borrow buffer: GpuBuffer<UInt32>, write: Bool, op: OperationContext) r: GpuVulkanMappedRegion {
+    return graphFTake<GpuVulkanMappedRegion>(gpuVkMapBuffer(buffer, 0 as UInt64, buffer.byteLength, write, op))
+}
+fun graphFWord(borrow mapping: GpuVulkanMappedRegion, index: Int) r: UInt32 {
+    var word = 0 as UInt32; var b = 0
+    while b < 4 { let byte = graphFTake<UInt8>(mapping.readByte((index * 4 + b) as UInt64)); word = word | ((byte as UInt32) << ((b * 8) as UInt32)); b = b + 1 }; return word
+}
+fun graphFPut(borrow mapping: GpuVulkanMappedRegion, index: Int, word: UInt32) r: Void {
+    var b = 0; while b < 4 { completed(mapping.writeByte((index * 4 + b) as UInt64, ((word >> ((b * 8) as UInt32)) & (255 as UInt32)) as UInt8), true); b = b + 1 }
+}
+fun graphFBindings(input: Int, output: Int) r: Array<Int> {
+    let indices = Array<Int>(); indices.push(input); indices.push(output); indices.push(3); indices.push(4); return indices
+}
+fun graphFNodes(borrow pipeline: GpuVulkanPipeline, op: OperationContext) r: Array<GpuVulkanGraphNode> {
+    let nodes = Array<GpuVulkanGraphNode>(); let dependency = Array<Int>(); dependency.push(0)
+    nodes.push(graphFTake<GpuVulkanGraphNode>(GpuVulkanGraphNode.create(pipeline, graphFBindings(0, 1), Array<Int>(), 5 as UInt64, 1 as UInt64, 1 as UInt64, op)))
+    nodes.push(graphFTake<GpuVulkanGraphNode>(GpuVulkanGraphNode.create(pipeline, graphFBindings(1, 2), dependency, 5 as UInt64, 1 as UInt64, 1 as UInt64, op))); return nodes
+}
+fun graphFRegions(borrow input: GpuBuffer<UInt32>, borrow intermediate: GpuBuffer<UInt32>, borrow output: GpuBuffer<UInt32>, borrow scale: GpuBuffer<UInt32>, borrow fault: GpuBuffer<UInt32>, op: OperationContext) r: Array<GpuBufferRegion> {
+    let regions = Array<GpuBufferRegion>()
+    regions.push(graphFTake<GpuBufferRegion>(input.region(0 as UInt64, 148 as UInt64, false, op)))
+    regions.push(graphFTake<GpuBufferRegion>(intermediate.region(0 as UInt64, 148 as UInt64, true, op)))
+    regions.push(graphFTake<GpuBufferRegion>(output.region(0 as UInt64, 148 as UInt64, true, op)))
+    regions.push(graphFTake<GpuBufferRegion>(scale.region(0 as UInt64, 16 as UInt64, false, op)))
+    regions.push(graphFTake<GpuBufferRegion>(fault.region(0 as UInt64, 4 as UInt64, true, op))); return regions
+}
+fun graphFOracle(borrow output: GpuBuffer<UInt32>, borrow intermediate: GpuBuffer<UInt32>, borrow fault: GpuBuffer<UInt32>, op: OperationContext) r: Void {
+    let finalMap = graphFMap(output, false, op); let middleMap = graphFMap(intermediate, false, op); let faultMap = graphFMap(fault, false, op); var i = 0
+    while i < 37 {
+        let input = ((4294967200 as UInt64) + ((i * 3) as UInt64)) & (4294967295 as UInt64)
+        let middle = (input * (7 as UInt64) + (i as UInt64)) & (4294967295 as UInt64)
+        let final = (middle * (7 as UInt64) + (i as UInt64)) & (4294967295 as UInt64)
+        if graphFWord(middleMap, i) != middle as UInt32 or graphFWord(finalMap, i) != final as UInt32 { abort("native producer/intermediate/consumer differs from independent wrap-u32 oracle") }; i = i + 1
+    }
+    if graphFWord(faultMap, 0) != (0 as UInt32) { abort("guarded graph emitted checked fault") }
+    completed(finalMap.release(), true); completed(middleMap.release(), true); completed(faultMap.release(), true)
+}
+
+// Creator-confined owner. No GPU object is ever a worker-task payload.
+@move
+class SoakGpu {
+    var device: GpuDevice
+    var context: GpuContext
+    var physical: GpuVulkanPipelineDevice
+    var allocator: GpuAllocator
+    var stream: GpuVulkanStream
+    var pipeline: GpuVulkanPipeline
+    var input: GpuBuffer<UInt32>
+    var middle: GpuBuffer<UInt32>
+    var output: GpuBuffer<UInt32>
+    var scale: GpuBuffer<UInt32>
+    var fault: GpuBuffer<UInt32>
+    var limits: GpuLimits
+    var operation: OperationContext
+    static fun open(binaryPath: String, reflectionPath: String, hardware: Bool) r: SoakGpu {
+        if size(binaryPath) < 20 or size(binaryPath) > 33554432 or size(reflectionPath) < 1 or size(reflectionPath) > 4194304 { abort("async.invalid: shader artifact extent") }
+        let binary = readText(binaryPath); let reflection = readText(reflectionPath)
+        let op = operation(); op.monotonicDeadline = soakDeadline()
+        let limits = GpuLimits.bounded(8, 4, 128, 1048576 as UInt64)
+        let provider = graphFTake<GpuVulkanProvider>(GpuVulkanProvider.discover(op, limits, not hardware))
+        var selected = -1; var i = 0
+        while i < provider.catalog.devices.length() {
+            let info = provider.catalog.devices[i]
+            if hardware {
+                if info.kind == GpuDeviceKind.Discrete and info.name.contains("RTX 4090") { selected = i }
+            } else if info.kind == GpuDeviceKind.Software { selected = i }
+            i = i + 1
+        }
+        if selected < 0 { abort("designated soak device unavailable; no fallback") }
+        let physical = graphFTake<GpuVulkanPipelineDevice>(GpuVulkanPipelineDevice.capture(provider, selected))
+        // VkPhysicalDeviceProperties2.properties.vendorID, checked against the
+        // captured SDK layout already owned by the foundation implementation.
+        if hardware and gpuVkU32(physical.metadata.buffers[0], 24 as UInt64) != (4318 as UInt32) { abort("designated RTX 4090 vendor differs") }
+        if not physical.matches(provider.catalog.devices[selected]) { abort("captured physical UUID differs from discovery") }
+        let device = graphFTake<GpuDevice>(openVulkanDevice(provider, selected, op))
+        let context = graphFTake<GpuContext>(device.createContext(op))
+        if not physical.matches(device.core.info) { abort("opened device identity differs from captured physical UUID") }
+        let allocator = graphFTake<GpuAllocator>(GpuAllocator.create(context, GpuMemoryKind.HostCoherent, 4096 as UInt64, 4, op))
+        let stream = graphFTake<GpuVulkanStream>(GpuVulkanStream.open(allocator, 4, op))
+        let artifact = graphFTake<GpuVulkanArtifact>(GpuVulkanArtifact.parse(binary, reflection, "foundation"))
+        let empty = Array<Int>()
+        let pipeline = graphFTake<GpuVulkanPipeline>(GpuVulkanPipeline.open(allocator, stream, physical, artifact, empty, op)); empty.free()
+        seen_string_release_owned(binary); seen_string_release_owned(reflection)
+        let input = graphFTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 37 as UInt64, 4 as UInt64, 256 as UInt64, op))
+        let middle = graphFTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 37 as UInt64, 4 as UInt64, 256 as UInt64, op))
+        let output = graphFTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 37 as UInt64, 4 as UInt64, 256 as UInt64, op))
+        let scale = graphFTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 4 as UInt64, 4 as UInt64, 256 as UInt64, op))
+        let fault = graphFTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 1 as UInt64, 4 as UInt64, 256 as UInt64, op))
+        let inputMap = graphFMap(input, true, op); let scaleMap = graphFMap(scale, true, op); i = 0
+        while i < 37 { graphFPut(inputMap, i, ((4294967200 as UInt64) + ((i * 3) as UInt64)) as UInt32); i = i + 1 }
+        graphFPut(scaleMap, 0, 7 as UInt32)
+        completed(inputMap.release(), true); completed(scaleMap.release(), true)
+        return SoakGpu{device: device, context: context, physical: physical, allocator: allocator,
+            stream: stream, pipeline: pipeline, input: input, middle: middle, output: output,
+            scale: scale, fault: fault, limits: limits, operation: op}
+    }
+    fun cycle(borrow reactor: AsyncEventLoop<IoStressProbe>, ctx: AsyncOperationContext,
+        executed: UInt64, released: UInt64) r: Void {
+        this.operation.monotonicDeadline = ctx.operation.monotonicDeadline
+        var readFd = -1 as Int64; var writeFd = -1 as Int64
+        if seen_async_process_pipe(1 as Int32, &readFd, &writeFd) != (0 as Int32) { abort("GPU notification pipe failed") }
+        let writer = must(AsyncFdStream.take(handle(writeFd, true), 1 as UInt64))
+        let job = probe(executed, released, None<AsyncIoLease>())
+        // Registration precedes native submission. The callback can only become
+        // ready after actual graph completion AND every independent oracle word.
+        let registration = must(reactor.register(job, job, handle(readFd, true), Interest.Readable, -1 as Int64, ctx))
+        let graph = graphFTake<GpuVulkanCommandGraph>(GpuVulkanCommandGraph.prepare(this.stream,
+            graphFRegions(this.input, this.middle, this.output, this.scale, this.fault, this.operation),
+            graphFNodes(this.pipeline, this.operation),
+            None<GpuVulkanTimestampPool>(), this.operation))
+        let sequence = graphFTake<UInt64>(graph.submit(this.operation))
+        var ready = false
+        while not ready and seen_time_monotonic_nanos() < this.operation.monotonicDeadline {
+            ready = graphFTake<Bool>(graph.poll()); if not ready { __ThreadYield() }
+        }
+        if not ready or sequence == (0 as UInt64) { abort("real GPU completion deadline exceeded") }
+        // Mapping cannot coexist with the graph's exclusive writable leases.
+        // Drop its native command/region owners before admitting oracle maps.
+        completed(graph.release(), true)
+        graphFOracle(this.output, this.middle, this.fault, this.operation)
+        if this.pipeline.borrowers != 0 or this.stream.core.inFlight != 0 { abort("GPU round retained graph owners") }
+        let bytes = must(OwnedBuffer<UInt8>.allocate(1 as UInt64, 1 as UInt64, 16 as UInt64))
+        bytes.data[0] = 1 as UInt8
+        let span = must(AsyncByteSpan.take(bytes, 0 as UInt64, 1 as UInt64))
+        let progress = must(writer.write(span, ctx))
+        if progress.bytes != (1 as UInt64) { abort("GPU notification did not write readiness byte") }
+        progress.free(); span.release(); awaitDispatch(reactor, ctx)
+        if reactor.matches(registration) { abort("GPU notification registration retained") }
+        registration.free(); must(writer.release())
+    }
+    fun release() r: Void {
+        completed(this.pipeline.release(), true)
+        completed(this.input.release(), true); completed(this.middle.release(), true)
+        completed(this.output.release(), true); completed(this.scale.release(), true); completed(this.fault.release(), true)
+        completed(this.stream.release(), true); completed(this.allocator.release(), true)
+        if this.device.core.resourceBorrowers != 0 or this.device.core.resourceCommittedBytes != (0 as UInt64) { abort("GPU native resource commitment did not drain") }
+        completed(this.context.release(), true); completed(this.device.release(), true)
+        this.physical.release(); this.limits.release(); releaseOperation(this.operation); this.free()
+    }
+}

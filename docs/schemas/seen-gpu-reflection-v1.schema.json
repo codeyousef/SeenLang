@@ -1,0 +1,564 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Seen GPU reflection v1",
+  "description": "Software IR reflection only. Enforce the 4 MiB UTF-8 ceiling and verify linked IR, layout constraints, domain ranges and hashes independently. A selected backend does not establish device execution.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema",
+    "module",
+    "ir_schema",
+    "ir_sha256",
+    "backend",
+    "target",
+    "fallback",
+    "hardware_verified",
+    "gpu_execution_verified",
+    "specializations",
+    "entries"
+  ],
+  "properties": {
+    "schema": {
+      "const": "seen-gpu-reflection-v1"
+    },
+    "module": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1024
+    },
+    "ir_schema": {
+      "const": "seen-gpu-ir-v1"
+    },
+    "ir_sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "backend": {
+      "enum": [
+        "none",
+        "spirv",
+        "cuda",
+        "hip",
+        "metal"
+      ]
+    },
+    "target": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "fallback": {
+      "enum": [
+        "error",
+        "cpu"
+      ]
+    },
+    "hardware_verified": {
+      "const": false
+    },
+    "gpu_execution_verified": {
+      "const": false
+    },
+    "specializations": {
+      "type": "array",
+      "maxItems": 64,
+      "items": {
+        "$ref": "#/$defs/specialization"
+      }
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 256,
+      "items": {
+        "$ref": "#/$defs/entry"
+      }
+    }
+  },
+  "$defs": {
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "group",
+        "binding",
+        "kind",
+        "access",
+        "type",
+        "value_type",
+        "scalar_type",
+        "lanes",
+        "element_stride",
+        "minimum_binding_bytes"
+      ],
+      "properties": {
+        "group": {
+          "const": 0
+        },
+        "binding": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 63
+        },
+        "kind": {
+          "enum": [
+            "storage",
+            "uniform"
+          ]
+        },
+        "access": {
+          "enum": [
+            "read",
+            "write",
+            "read_write"
+          ]
+        },
+        "type": {
+          "type": "integer",
+          "minimum": 1001,
+          "maximum": 4052
+        },
+        "value_type": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 52
+        },
+        "scalar_type": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        },
+        "lanes": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        },
+        "element_stride": {
+          "enum": [
+            4,
+            8,
+            16
+          ]
+        },
+        "minimum_binding_bytes": {
+          "enum": [
+            0,
+            16
+          ]
+        }
+      }
+    },
+    "entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "function",
+        "abi_sha256",
+        "workgroup",
+        "bindings",
+        "required_capabilities",
+        "shared_bytes",
+        "requires_fault_buffer",
+        "fault_binding"
+      ],
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "function": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "abi_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "workgroup": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1024
+          }
+        },
+        "bindings": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/binding"
+          }
+        },
+        "required_capabilities": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 67108863
+        },
+        "shared_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "requires_fault_buffer": {
+          "type": "boolean"
+        },
+        "fault_binding": {
+          "type": "integer",
+          "minimum": -1,
+          "maximum": 64
+        },
+        "parameter_abi": {
+          "enum": [
+            "seen-ptx-kernel-v1",
+            "seen-amdgpu-kernel-v1",
+            "seen-metal-kernel-v1"
+          ]
+        },
+        "packed_parameter_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "parameters": {
+          "type": "array",
+          "maxItems": 129,
+          "items": {
+            "$ref": "#/$defs/parameter"
+          }
+        },
+        "parameter_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 129
+        },
+        "hsa_code_object_version": {
+          "const": 5
+        },
+        "kernarg_alignment": {
+          "const": 16
+        },
+        "implicit_argument_offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3840
+        },
+        "implicit_argument_bytes": {
+          "const": 256
+        },
+        "kernel_argument_bytes": {
+          "type": "integer",
+          "minimum": 256,
+          "maximum": 4096
+        },
+        "wavefront_size": {
+          "enum": [
+            32,
+            64
+          ]
+        },
+        "static_shared_byte_ceiling": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65536
+        },
+        "launch_fault_mask": {
+          "const": 16
+        },
+        "msl_version": {
+          "enum": [
+            "metal3.0",
+            "metal3.1",
+            "metal3.2"
+          ]
+        },
+        "requires_apple_silicon": {
+          "type": "boolean"
+        },
+        "buffer_slot_ceiling": {
+          "const": 31
+        },
+        "source_parameter_ceiling": {
+          "const": 29
+        },
+        "buffer_offset_alignment": {
+          "const": 256
+        },
+        "fault_buffer_bytes": {
+          "const": 4
+        },
+        "launch_binding": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "launch_bytes": {
+          "type": "integer",
+          "minimum": 16,
+          "maximum": 464,
+          "multipleOf": 16
+        },
+        "launch_alignment": {
+          "const": 16
+        },
+        "entry_name_prefix": {
+          "const": "seen_metal_entry_"
+        },
+        "launch_counts": {
+          "type": "array",
+          "maxItems": 29,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "binding",
+              "offset",
+              "bytes",
+              "unit"
+            ],
+            "properties": {
+              "binding": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 28
+              },
+              "offset": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 448,
+                "multipleOf": 16
+              },
+              "bytes": {
+                "const": 4
+              },
+              "unit": {
+                "const": "elements"
+              }
+            }
+          }
+        }
+      }
+    },
+    "specialization": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "type",
+        "default",
+        "minimum",
+        "maximum",
+        "function"
+      ],
+      "properties": {
+        "id": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535
+        },
+        "type": {
+          "enum": [
+            2,
+            3
+          ]
+        },
+        "default": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 4294967295
+        },
+        "minimum": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 4294967295
+        },
+        "maximum": {
+          "type": "integer",
+          "minimum": -2147483648,
+          "maximum": 4294967295
+        },
+        "function": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 255
+        }
+      }
+    },
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "index",
+        "binding",
+        "kind",
+        "offset",
+        "bytes",
+        "alignment"
+      ],
+      "properties": {
+        "index": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 128
+        },
+        "binding": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 64
+        },
+        "kind": {
+          "enum": [
+            "storage_address",
+            "storage_length",
+            "uniform_value",
+            "fault_address"
+          ]
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4096
+        },
+        "bytes": {
+          "enum": [
+            4,
+            8,
+            16
+          ]
+        },
+        "alignment": {
+          "enum": [
+            4,
+            8,
+            16
+          ]
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "backend": {
+            "const": "cuda"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "entries": {
+            "items": {
+              "required": [
+                "parameter_abi",
+                "packed_parameter_bytes",
+                "parameters",
+                "parameter_count"
+              ],
+              "properties": {
+                "parameter_abi": {
+                  "const": "seen-ptx-kernel-v1"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "backend": {
+            "const": "hip"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "entries": {
+            "items": {
+              "required": [
+                "parameter_abi",
+                "packed_parameter_bytes",
+                "parameters",
+                "parameter_count",
+                "hsa_code_object_version",
+                "kernarg_alignment",
+                "implicit_argument_offset",
+                "implicit_argument_bytes",
+                "kernel_argument_bytes",
+                "wavefront_size",
+                "static_shared_byte_ceiling",
+                "launch_fault_mask"
+              ],
+              "properties": {
+                "parameter_abi": {
+                  "const": "seen-amdgpu-kernel-v1"
+                },
+                "requires_fault_buffer": {
+                  "const": true
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "backend": {
+            "const": "metal"
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "target": {
+            "enum": [
+              "macos13",
+              "macos14",
+              "macos15"
+            ]
+          },
+          "entries": {
+            "items": {
+              "required": [
+                "parameter_abi",
+                "launch_fault_mask",
+                "msl_version",
+                "requires_apple_silicon",
+                "buffer_slot_ceiling",
+                "source_parameter_ceiling",
+                "buffer_offset_alignment",
+                "fault_buffer_bytes",
+                "launch_binding",
+                "launch_bytes",
+                "launch_alignment",
+                "entry_name_prefix",
+                "launch_counts"
+              ],
+              "properties": {
+                "parameter_abi": {
+                  "const": "seen-metal-kernel-v1"
+                },
+                "requires_fault_buffer": {
+                  "const": true
+                },
+                "bindings": {
+                  "maxItems": 29
+                },
+                "shared_bytes": {
+                  "maximum": 32768
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

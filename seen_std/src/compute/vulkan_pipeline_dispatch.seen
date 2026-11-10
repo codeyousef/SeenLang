@@ -1,0 +1,232 @@
+/// Preparation owns descriptor/command objects and all supplied byte regions.
+/// Submission only re-records an idle command and enters the bounded stream.
+import core.result.{Result, Ok, Err}
+import core.operation_context.{OperationContext}
+import compute.error.{GpuError, gpuFailure}
+import compute.vulkan_error.{gpuVkContextFailure}
+import compute.vulkan_pipeline.{GpuVulkanPipeline}
+import compute.vulkan_stream.{GpuVulkanEvent}
+import compute.buffer_region.{GpuBufferRegion}
+import compute.vulkan_abi.{gpuVkAllocate, gpuVkDrop}
+import compute.vulkan_transfer_abi.{VulkanCopyPoolInfo, VulkanCopyAllocateInfo, VulkanCopyBeginInfo, vkCreateCommandPool, vkDestroyCommandPool, vkAllocateCommandBuffers, vkResetCommandBuffer, vkBeginCommandBuffer, vkEndCommandBuffer}
+import compute.vulkan_pipeline_abi.{VulkanPoolSize, VulkanDescriptorPoolInfo, VulkanDescriptorAllocateInfo, VulkanDescriptorBufferInfo, VulkanDescriptorWrite, vkCreateDescriptorPool, vkDestroyDescriptorPool, vkAllocateDescriptorSets, vkUpdateDescriptorSets, vkCmdBindPipeline, vkCmdBindDescriptorSets, vkCmdDispatch, vkCmdFillBuffer, gpuVkPipelineBarrier}
+import memory.allocation.{allocationBudgetAvailable}
+import compute.vulkan_pipeline_artifact.{gpuVkPipelineOom}
+import compute.operation.{gpuCheckOperation}
+import compute.vulkan_mapping.{GpuVulkanMappedRegion, gpuVkMapRegion}
+import core.option.{Some}
+
+@move
+class GpuVulkanDispatch {
+    var pipeline: GpuVulkanPipeline
+    var regions: Array<GpuBufferRegion>
+    var sets: Array<UInt64>
+    var descriptorPool: UInt64
+    var commandPool: UInt64
+    var command: UInt64
+    var sequence: UInt64
+    var pending: Bool
+    var closed: Bool
+    var retained: Bool
+    var faultMappings: Array<GpuVulkanMappedRegion>
+    var faultIndex: Int
+    var faultBits: UInt32
+    /// Valid regions are consumed even on construction failure. An already
+    /// stale region is rejected without transfer. Order is reflection order.
+    static fun prepare(borrow pipeline: GpuVulkanPipeline, regions: Array<GpuBufferRegion>, operation: OperationContext) r: Result<GpuVulkanDispatch, GpuError> {
+        var i = 0
+        while i < regions.length() {
+            if not regions[i].valid() { return Err<GpuVulkanDispatch, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.dispatch.prepare", "stale region ownership is not transferred")) }
+            i = i + 1
+        }
+        let owner = GpuVulkanDispatch{pipeline: pipeline, regions: regions, sets: Array<UInt64>(), descriptorPool: 0 as UInt64, commandPool: 0 as UInt64, command: 0 as UInt64, sequence: 0 as UInt64, pending: false, closed: false, retained: false, faultMappings: Array<GpuVulkanMappedRegion>(), faultIndex: -1, faultBits: 0 as UInt32}
+        let built = owner.construct(operation)
+        if built.isErr() { let error = built.unwrapErr(); built.releaseContainer(); let released = owner.release(); released.releaseContainer(); return Err<GpuVulkanDispatch, GpuError>(error) }
+        built.releaseContainer(); return Ok<GpuVulkanDispatch, GpuError>(owner)
+    }
+    fun construct(operation: OperationContext) r: Result<Bool, GpuError> {
+        if this.closed or this.retained or this.commandPool != (0 as UInt64) or this.descriptorPool != (0 as UInt64) or this.command != (0 as UInt64) or this.sets.length() != 0 {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.dispatch.prepare", "native dispatch construction is single-use"))
+        }
+        let checked = gpuCheckOperation(operation, "gpu.vulkan.dispatch.prepare")
+        if checked.isErr() { return checked }
+        checked.releaseContainer()
+        let pipeline = this.pipeline; let core = pipeline.stream
+        if pipeline.closed or core.closed or not core.lease.valid() or this.regions.length() != pipeline.artifact.bindings.length() or pipeline.borrowers >= core.lease.core.limits.maxResources {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.dispatch.prepare", "prepared dispatch requires a live pipeline and every reflected region"))
+        }
+        let ready = core.lease.admission("gpu.vulkan.dispatch.prepare")
+        if ready.isErr() { return ready }; ready.releaseContainer()
+        if core.poisoned { return Err<Bool, GpuError>(gpuFailure("gpu.unavailable", "gpu.vulkan.dispatch.prepare", "stream submission is uncertain")) }
+        if not allocationBudgetAvailable(32768) { return Err<Bool, GpuError>(gpuVkPipelineOom("gpu.vulkan.dispatch.prepare")) }
+        var storageCount = 0; var uniformCount = 0; var i = 0
+        var faultIndex = -1
+        while i < this.regions.length() {
+            let region = this.regions[i]; let binding = pipeline.artifact.bindings[i]
+            var alignment = pipeline.storageAlignment; var maximum = pipeline.storageRange
+            if binding.descriptorType == 6 { alignment = pipeline.uniformAlignment; maximum = pipeline.uniformRange; uniformCount = uniformCount + 1 } else { storageCount = storageCount + 1 }
+            if not region.valid() or region.lease.core != core.lease.core or region.lease.slot != core.lease.slot or region.lease.generation != core.lease.generation or region.write != binding.write or region.bytes < binding.minimumBytes as UInt64 or region.bytes > maximum or region.offset % alignment != (0 as UInt64) or (binding.descriptorType == 7 and region.bytes % (binding.stride as UInt64) != (0 as UInt64)) or (binding.fault and (region.bytes != (4 as UInt64) or region.offset % (4 as UInt64) != (0 as UInt64))) {
+                return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.dispatch.prepare", "region device, generation, access, alignment or reflected byte range is invalid"))
+            }
+            if binding.fault {
+                let block = region.core.blocks[region.core.slots[region.slot].block]
+                if not block.native.hostVisible or not block.native.hostCoherent {
+                    return Err<Bool, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.vulkan.dispatch.prepare", "checked shader faults require a four-byte host-coherent fault region"))
+                }
+                faultIndex = i
+            }
+            var j = 0
+            while j < i { if this.regions[j] == region { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.dispatch.prepare", "one region cannot be owned twice")) }; j = j + 1 }
+            i = i + 1
+        }
+        pipeline.borrowers = pipeline.borrowers + 1; this.retained = true
+        if faultIndex >= 0 {
+            this.faultIndex = faultIndex
+            let mapped = gpuVkMapRegion(this.regions[faultIndex], operation)
+            if mapped.isErr() { let error = mapped.unwrapErr(); mapped.releaseContainer(); return Err<Bool, GpuError>(error) }
+            this.faultMappings.push(mapped.unwrap()); mapped.releaseContainer()
+        }
+        let allocated = gpuVkAllocate(4096 as UInt64)
+        if allocated.isErr() { allocated.unwrapErr().release(); allocated.releaseContainer(); return Err<Bool, GpuError>(gpuVkPipelineOom("gpu.vulkan.dispatch.prepare")) }
+        let scratch = allocated.unwrap(); allocated.releaseContainer()
+        let sizes = scratch.data as *VulkanPoolSize; var sizeCount = 0
+        if storageCount > 0 { sizes[sizeCount] = VulkanPoolSize{descriptorType: 7 as UInt32, count: storageCount as UInt32}; sizeCount = sizeCount + 1 }
+        if uniformCount > 0 { sizes[sizeCount] = VulkanPoolSize{descriptorType: 6 as UInt32, count: uniformCount as UInt32}; sizeCount = sizeCount + 1 }
+        if pipeline.sets.length() > 0 {
+            let poolInfo = VulkanDescriptorPoolInfo{sType: 33 as UInt32, pNext: null as *Void, flags: 0 as UInt32, maxSets: pipeline.sets.length() as UInt32, sizeCount: sizeCount as UInt32, sizes: sizes as *const VulkanPoolSize}
+            var pool = 0 as UInt64; let pooled = vkCreateDescriptorPool(core.device, (&poolInfo) as *const VulkanDescriptorPoolInfo, null as *Void, &pool); this.descriptorPool = pool
+            if pooled != (0 as Int32) { gpuVkDrop(scratch); return Err<Bool, GpuError>(gpuVkContextFailure(core.lease, pooled, "gpu.vulkan.dispatch.descriptor_pool")) }
+            if pool == (0 as UInt64) { gpuVkDrop(scratch); return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.dispatch.descriptor_pool", "native descriptor pool identity is empty")) }
+            let layouts = scratch.data as *UInt64; i = 0; while i < pipeline.sets.length() { layouts[i] = pipeline.sets[i]; i = i + 1 }
+            let allocateInfo = VulkanDescriptorAllocateInfo{sType: 34 as UInt32, pNext: null as *Void, pool: pool, count: pipeline.sets.length() as UInt32, layouts: layouts as *const UInt64}
+            let output = ((scratch.data as UInt64) + (128 as UInt64)) as *UInt64
+            let assigned = vkAllocateDescriptorSets(core.device, (&allocateInfo) as *const VulkanDescriptorAllocateInfo, output)
+            if assigned != (0 as Int32) { gpuVkDrop(scratch); return Err<Bool, GpuError>(gpuVkContextFailure(core.lease, assigned, "gpu.vulkan.dispatch.descriptors")) }
+            i = 0
+            while i < pipeline.sets.length() {
+                if output[i] == (0 as UInt64) { gpuVkDrop(scratch); return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.dispatch.descriptors", "native descriptor set identity is empty")) }
+                this.sets.push(output[i]); i = i + 1
+            }
+            i = 0
+            while i < this.regions.length() {
+                let region = this.regions[i]; let binding = pipeline.artifact.bindings[i]; let slot = region.core.slots[region.slot]; let block = region.core.blocks[slot.block]
+                let bufferInfo = VulkanDescriptorBufferInfo{buffer: block.native.buffer, offset: region.offset, range: region.bytes}
+                let write = VulkanDescriptorWrite{sType: 35 as UInt32, pNext: null as *Void, set: this.sets[binding.group], binding: binding.binding as UInt32, arrayElement: 0 as UInt32, count: 1 as UInt32, descriptorType: binding.descriptorType as UInt32, imageInfo: null as *Void, bufferInfo: (&bufferInfo) as *const VulkanDescriptorBufferInfo, texelView: null as *Void}
+                vkUpdateDescriptorSets(core.device, 1 as UInt32, (&write) as *const VulkanDescriptorWrite, 0 as UInt32, null as *Void); i = i + 1
+            }
+        }
+        let poolInfo = VulkanCopyPoolInfo{sType: 39 as UInt32, pNext: null as *Void, flags: 2 as UInt32, queueFamilyIndex: pipeline.queueFamily}
+        var commandPool = 0 as UInt64; let pooled = vkCreateCommandPool(core.device, (&poolInfo) as *const VulkanCopyPoolInfo, null as *Void, &commandPool); this.commandPool = commandPool
+        if pooled != (0 as Int32) { gpuVkDrop(scratch); return Err<Bool, GpuError>(gpuVkContextFailure(core.lease, pooled, "gpu.vulkan.dispatch.command_pool")) }
+        if commandPool == (0 as UInt64) { gpuVkDrop(scratch); return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.dispatch.command_pool", "native command pool identity is empty")) }
+        let commandInfo = VulkanCopyAllocateInfo{sType: 40 as UInt32, pNext: null as *Void, commandPool: commandPool, level: 0 as UInt32, commandBufferCount: 1 as UInt32}
+        var command = 0 as UInt64; let commanded = vkAllocateCommandBuffers(core.device, (&commandInfo) as *const VulkanCopyAllocateInfo, &command); this.command = command; gpuVkDrop(scratch)
+        if commanded != (0 as Int32) { return Err<Bool, GpuError>(gpuVkContextFailure(core.lease, commanded, "gpu.vulkan.dispatch.command")) }
+        if command == (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.dispatch.prepare", "native command identity is empty")) }
+        return Ok<Bool, GpuError>(true)
+    }
+    fun record(x: UInt64, y: UInt64, z: UInt64) r: Result<Bool, GpuError> {
+        let pipeline = this.pipeline
+        if this.closed or pipeline.closed { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.dispatch", "dispatch or pipeline is closed")) }
+        if this.faultBits != (0 as UInt32) { return Err<Bool, GpuError>(this.shaderFault()) }
+        let ready = pipeline.stream.lease.admission("gpu.vulkan.dispatch")
+        if ready.isErr() { return ready }; ready.releaseContainer()
+        if this.pending or pipeline.stream.poisoned or x == (0 as UInt64) or y == (0 as UInt64) or z == (0 as UInt64) or x > pipeline.maxX or y > pipeline.maxY or z > pipeline.maxZ {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.dispatch", "dispatch geometry or reusable command state is invalid"))
+        }
+        var regionIndex = 0
+        while regionIndex < this.regions.length() {
+            if not this.regions[regionIndex].valid() { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.dispatch", "prepared buffer region generation is stale")) }
+            regionIndex = regionIndex + 1
+        }
+        let reset = vkResetCommandBuffer(this.command, 0 as UInt32)
+        if reset != (0 as Int32) { return Err<Bool, GpuError>(gpuVkContextFailure(pipeline.stream.lease, reset, "gpu.vulkan.dispatch.reset")) }
+        let begin = VulkanCopyBeginInfo{sType: 42 as UInt32, pNext: null as *Void, flags: 1 as UInt32, inheritance: null as *Void}
+        let begun = vkBeginCommandBuffer(this.command, (&begin) as *const VulkanCopyBeginInfo)
+        if begun != (0 as Int32) { return Err<Bool, GpuError>(gpuVkContextFailure(pipeline.stream.lease, begun, "gpu.vulkan.dispatch.begin")) }
+        var i = 0
+        while i < this.regions.length() {
+            let region = this.regions[i]; let slot = region.core.slots[region.slot]; let block = region.core.blocks[slot.block]; let binding = pipeline.artifact.bindings[i]
+            if binding.fault {
+                gpuVkPipelineBarrier(this.command, block.native.buffer, region.offset, region.bytes, 81920 as UInt32, 4096 as UInt32, 98304 as UInt32, 4096 as UInt32)
+                vkCmdFillBuffer(this.command, block.native.buffer, region.offset, 4 as UInt64, 0 as UInt32)
+                gpuVkPipelineBarrier(this.command, block.native.buffer, region.offset, region.bytes, 4096 as UInt32, 2048 as UInt32, 4096 as UInt32, 96 as UInt32)
+            } else {
+                var destinationAccess = 32 as UInt32
+                if binding.write { destinationAccess = 96 as UInt32 }
+                if binding.descriptorType == 6 { destinationAccess = 8 as UInt32 }
+                gpuVkPipelineBarrier(this.command, block.native.buffer, region.offset, region.bytes, 81920 as UInt32, 2048 as UInt32, 98304 as UInt32, destinationAccess)
+            }
+            i = i + 1
+        }
+        vkCmdBindPipeline(this.command, 1 as UInt32, pipeline.pipeline)
+        i = 0; while i < this.sets.length() { var set = this.sets[i]; vkCmdBindDescriptorSets(this.command, 1 as UInt32, pipeline.layout, i as UInt32, 1 as UInt32, &set, 0 as UInt32, null as *const UInt32); i = i + 1 }
+        vkCmdDispatch(this.command, x as UInt32, y as UInt32, z as UInt32)
+        i = 0; while i < this.regions.length() {
+            let region = this.regions[i]
+            if region.write { let slot = region.core.slots[region.slot]; let block = region.core.blocks[slot.block]; gpuVkPipelineBarrier(this.command, block.native.buffer, region.offset, region.bytes, 2048 as UInt32, 81920 as UInt32, 64 as UInt32, 98304 as UInt32) }; i = i + 1
+        }
+        let ended = vkEndCommandBuffer(this.command)
+        if ended != (0 as Int32) { return Err<Bool, GpuError>(gpuVkContextFailure(pipeline.stream.lease, ended, "gpu.vulkan.dispatch.end")) }
+        return Ok<Bool, GpuError>(true)
+    }
+    fun submit(x: UInt64, y: UInt64, z: UInt64, operation: OperationContext) r: Result<UInt64, GpuError> {
+        let recorded = this.record(x, y, z); if recorded.isErr() { let error = recorded.unwrapErr(); recorded.releaseContainer(); return Err<UInt64, GpuError>(error) }; recorded.releaseContainer()
+        let submitted = this.pipeline.stream.submit(this.command, operation); this.admitted(submitted); return submitted
+    }
+    fun submitAfter(x: UInt64, y: UInt64, z: UInt64, borrow event: GpuVulkanEvent, operation: OperationContext) r: Result<UInt64, GpuError> {
+        let recorded = this.record(x, y, z); if recorded.isErr() { let error = recorded.unwrapErr(); recorded.releaseContainer(); return Err<UInt64, GpuError>(error) }; recorded.releaseContainer()
+        let submitted = this.pipeline.stream.submitAfter(this.command, event, operation); this.admitted(submitted); return submitted
+    }
+    fun admitted(borrow result: Result<UInt64, GpuError>) r: Void {
+        var sequence = 0 as UInt64
+        if result.isOkay() { sequence = result.unwrap() } else { sequence = result.unwrapErr().progress }
+        if sequence != (0 as UInt64) { this.sequence = sequence; this.pending = true }
+    }
+    fun poll() r: Result<Bool, GpuError> {
+        if this.closed or this.sequence == (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.dispatch.poll", "dispatch has no live submitted sequence")) }
+        if this.faultBits != (0 as UInt32) { return Err<Bool, GpuError>(this.shaderFault()) }
+        let observed = this.pipeline.stream.poll(this.sequence)
+        if observed.isErr() {
+            if observed.unwrapErr().code == "gpu.device_lost" and observed.unwrapErr().progress == this.sequence { this.pending = false }
+            return observed
+        }
+        if not observed.unwrap() { return observed }
+        observed.releaseContainer(); this.pending = false
+        if this.faultMappings.length() != 0 and this.faultBits == (0 as UInt32) {
+            let mapping = this.faultMappings[0]
+            let data = mapping.address as *const UInt32
+            this.faultBits = data[0]
+        }
+        if this.faultBits != (0 as UInt32) { return Err<Bool, GpuError>(this.shaderFault()) }
+        return Ok<Bool, GpuError>(true)
+    }
+    fun shaderFault() r: GpuError {
+        let error = gpuFailure("gpu.kernel_fault", "gpu.vulkan.dispatch.poll", "completed shader reported a checked fault; dispatch reuse is disabled")
+        error.nativeCode.free(); error.nativeCode = Some<Int64>(this.faultBits as Int64)
+        error.progress = this.sequence
+        return error
+    }
+    fun close() r: Result<Bool, GpuError> {
+        if this.closed { return Ok<Bool, GpuError>(false) }
+        if this.pending { return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.vulkan.dispatch.close", "native command and buffer regions await completion observation")) }
+        if this.commandPool != (0 as UInt64) or this.descriptorPool != (0 as UInt64) {
+            let device = this.pipeline.stream.device
+            if this.commandPool != (0 as UInt64) { vkDestroyCommandPool(device, this.commandPool, null as *Void); this.commandPool = 0 as UInt64 }
+            if this.descriptorPool != (0 as UInt64) { vkDestroyDescriptorPool(device, this.descriptorPool, null as *Void); this.descriptorPool = 0 as UInt64 }
+        }
+        var mappingIndex = 0
+        while mappingIndex < this.faultMappings.length() {
+            let released = this.faultMappings[mappingIndex].release()
+            if released.isErr() { abort("prepared dispatch lost its coherent fault mapping") }
+            released.releaseContainer(); mappingIndex = mappingIndex + 1
+        }
+        this.faultMappings.free()
+        var i = 0; while i < this.regions.length() {
+            var duplicate = false; var j = 0; while j < i { if this.regions[j] == this.regions[i] { duplicate = true }; j = j + 1 }
+            if not duplicate and i != this.faultIndex { let released = this.regions[i].release(); if released.isErr() { abort("prepared dispatch lost its retained region generation") }; released.releaseContainer() }; i = i + 1
+        }
+        this.regions.free(); this.sets.free(); if this.retained { this.pipeline.borrowers = this.pipeline.borrowers - 1; this.retained = false }; this.closed = true; return Ok<Bool, GpuError>(true)
+    }
+    fun release() r: Result<Bool, GpuError> { let closed = this.close(); if closed.isErr() { return closed }; closed.releaseContainer(); this.free(); return Ok<Bool, GpuError>(true) }
+}

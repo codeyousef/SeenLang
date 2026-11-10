@@ -11,6 +11,7 @@
 #include <stdint.h>
 #include "reactor_abi.h"
 #include "sync_abi.h"
+#include "src/executor_abi.h"
 #include <inttypes.h>
 
 // ============================================================================
@@ -38,6 +39,13 @@ typedef struct {
     int64_t element_size;
     void* data;
 } SeenArray;
+
+/* Internal compiler ownership observer. Events: 1 allocate, 2 reallocate,
+ * 3 native free notification, 4 pool free (nonzero callback consumes it).
+ * Kinds: 0 budgeted malloc, 1 pool, 2 unbudgeted C string; a negative kind
+ * carries the alignment of a budgeted aligned allocation. */
+int64_t seen_allocation_observer_install(void *context, uint64_t entry);
+int64_t seen_allocation_observer_remove(void *context);
 
 typedef struct {
     bool success;
@@ -461,10 +469,16 @@ enum {
     SEEN_FS_END = 14
 };
 
+/* flags: read=1, write=2, create=4, truncate=8, append=16, exclusive=32,
+   directory=64, no-follow=128, nonblocking=256 (unsupported if unavailable).
+   Post-open failure removes only a successfully exclusive-created path,
+   closes the descriptor once, and preserves the primary native status. */
 int32_t seen_fs_open(int64_t path_len, const char *path_data, int32_t flags,
                      int32_t direct_mode, uint64_t *out_handle,
                      uint64_t *out_alignment, int32_t *out_direct_active,
                      uint64_t *out_fallback_count);
+/* POSIX close consumes and clears the opaque owner even on failure; never retry
+   the underlying descriptor. The value form has the same consumption contract. */
 int32_t seen_fs_close(uint64_t *handle);
 int32_t seen_fs_close_value(uint64_t handle);
 int32_t seen_fs_metadata(uint64_t handle, uint64_t *out_size,
@@ -1081,18 +1095,18 @@ int32_t seen_time_sleep_nanos(int64_t nanoseconds);
 // and -1 when either existing path cannot be canonicalized. Windows returns
 // -2 until native Seen defines deterministic drive and UNC root policy.
 int32_t seen_deterministic_runtime_status(void);
+// Allocation-free views into the immutable launch snapshot. The returned
+// strings remain valid for the process lifetime and must not be modified/freed.
+// out_status is required: 0 = present, 1 = missing, -1 = invalid request or
+// unavailable/disabled snapshot. Argument indexes include argv[0].
+SeenString seen_deterministic_argument_view(int64_t index, int32_t *out_status);
+SeenString seen_deterministic_environment_view(SeenString name,
+                                               int32_t *out_status);
 // Re-exec the current compiler process after deterministic launch variables
 // have been validated and published. Success never returns. A negative result
 // is a stable unsupported/failure status and callers must fail closed.
 int32_t seen_reexec_current_process(void);
 int32_t seen_deterministic_path_beneath(SeenString root, SeenString path);
-
-// ============================================================================
-// Work-Stealing Thread Pool
-// ============================================================================
-int64_t seen_ws_pool_new(int64_t nworkers);
-void    seen_ws_pool_submit(int64_t pool_handle, int64_t fn_ptr, int64_t arg);
-void    seen_ws_pool_shutdown(int64_t pool_handle);
 
 // ============================================================================
 // Parallel For
@@ -1170,5 +1184,11 @@ int64_t  seen_small_vec_get_f64(int64_t handle, int64_t index);
 int64_t  seen_small_vec_get_str(int64_t handle, int64_t index);
 int64_t  seen_small_vec_length(int64_t handle);
 void     seen_small_vec_clear(int64_t handle);
+
+/* Explicit official SPIRV-Tools validation: 0 valid, vendor error otherwise;
+   -1000 means unavailable SDK/platform, -2 means validator allocation failure.
+   Borrows the aligned binary String span synchronously without a byte copy;
+   never opens a GPU device. Embedded zero bytes are preserved by its length. */
+int32_t seen_spirv_validate_binary(SeenString binary, int32_t vulkan_version);
 
 #endif // SEEN_RUNTIME_H

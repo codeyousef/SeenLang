@@ -1,4 +1,5 @@
 import codegen.ir_index_access_plan.{pointerIndexElementTypeImpl}
+import codegen.ir_type_mapping.{isFixedWidthScalarNameImpl}
 ///
 ir_special_expr_infer.seen — Shared special-expression inference helpers
 Extracted from llvm_ir_gen.seen to keep inferExpressionType dispatch thin.
@@ -24,6 +25,9 @@ fun inferKnownArrayLiteralTypeImpl(firstElemType: String) r: String {
     }
     if firstElemType == "Bool" {
         return "Array<Bool>"
+    }
+    if isFixedWidthScalarNameImpl(firstElemType) {
+        return "Array<" + firstElemType + ">"
     }
     return ""
 }

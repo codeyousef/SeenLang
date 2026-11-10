@@ -1,13 +1,14 @@
-import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
+import codegen.ir_bounds_proof_state.{consumeBoundsProof}
+import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl, loadOwnedLiteralValueImpl}
 // ir_index_access_driver.seen - prepared index access lowering leaves.
 
 import str.string.{StringBuilder}
 import parser.real_parser.{ParserExpressionNode}
-import codegen.ir_assignment_gen.{emitPreparedIndexAssignmentBoundsCheckImpl, emitPreparedIndexAssignmentStoreImpl}
+import codegen.ir_assignment_gen.{emitPreparedIndexAssignmentStoreImpl}
 import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
 import codegen.ir_codegen_global_state.{getFunctionReturnTypeWithGlobalStateImpl, getGlobalStructNamesImpl}
 import codegen.ir_codegen_metrics_state.{cseClear}
-import codegen.ir_codegen_type_state.{isClassTypeState, isDataTypeState, mapTypeState}
+import codegen.ir_codegen_type_state.{isClassTypeState, isDataTypeState, mapTypeState, getDataTypeSizeState}
 import codegen.ir_index_access_gen.{emitPointerIndexAddressImpl, emitPreparedPointerIndexAccessImpl, emitPreparedOperatorIndexAccessCallImpl, emitPreparedIndexBoundsCheckImpl, emitPreparedIndexElementAccessImpl}
 import codegen.ir_index_access_plan.{pointerIndexElementTypeImpl, shouldUsePointerIndexAccessImpl, shouldTryOperatorIndexAccessImpl, planTypedIndexAccessImpl}
 import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
@@ -63,7 +64,9 @@ fun emitIndexBoundsCheckState(output: StringBuilder, arrayReg: String,
     emitPreparedIndexBoundsCheckImpl(output, getFeatureRegBoxImpl(), arrayReg,
         indexReg, boundsCountBox)
     cseClear()
-    return boundsCountBox[0]
+    let nextBoundsCount = boundsCountBox[0]
+    boundsCountBox.free()
+    return nextBoundsCount
 }
 
 fun emitTypedIndexAccessState(output: StringBuilder, arrayType: String,
@@ -101,23 +104,22 @@ fun emitPreparedIndexAssignmentState(output: StringBuilder, arrayReg: String,
     if shouldUsePointerIndexAccessImpl(arrayType) {
         if arrayType.startsWith("*const ") { abort("Error: [E_POINTER_CONST] cannot write through a const pointer") }
         let elementLlvm = pointerIndexElementLlvmTypeState(arrayType)
-        var sourceLlvm = mapTypeState(valueSeenType)
-        if valueSeenType.startsWith("*") { sourceLlvm = "i64" }
-        let stored = coerceValueForLlvmTargetImpl(output, getFeatureRegBoxImpl(),
-            elementLlvm, valueSeenType, sourceLlvm, valueReg)
+        var stored = valueReg
+        if valueKind == "StructLiteral" and isDataTypeState(valueSeenType) {
+            stored = loadOwnedLiteralValueImpl(output, getFeatureRegBoxImpl(),
+                elementLlvm, valueReg, getDataTypeSizeState(valueSeenType))
+        } else {
+            var sourceLlvm = mapTypeState(valueSeenType)
+            if valueSeenType.startsWith("*") { sourceLlvm = "i64" }
+            stored = coerceValueForLlvmTargetImpl(output, getFeatureRegBoxImpl(),
+                elementLlvm, valueSeenType, sourceLlvm, valueReg)
+        }
         let address = emitPointerIndexAddressImpl(output, getFeatureRegBoxImpl(), arrayReg, indexReg, elementLlvm)
         output.append("  store " + elementLlvm + " " + stored + ", ptr " + address + ", align 1 ; typed ptr[i] assignment\n")
         return boundsCheckCount
     }
-    var nextBoundsCount = boundsCheckCount
-    if boundsCheckEnabled == 1 {
-        let labelSuffix = nextBoundsCount.toString()
-        nextBoundsCount = nextBoundsCount + 1
-        emitPreparedIndexAssignmentBoundsCheckImpl(output, getFeatureRegBoxImpl(),
-            arrayReg, indexReg, "bounds_fail_" + labelSuffix,
-            "bounds_ok_" + labelSuffix)
-        cseClear()
-    }
+    let nextBoundsCount = emitIndexBoundsCheckState(output, arrayReg,
+        indexReg, boundsCheckEnabled, boundsCheckCount)
 
     var elementType: String = "ptr"
     if arrayType.startsWith("Array<") {
@@ -167,8 +169,13 @@ fun generateIndexAccessState(ctx: CodegenLoweringContext,
     let indexReg = lowerExpression(ctx, expr.operands[1])
     arrayReg = applyBlockStatementsIndexAccessFallbackState(output,
         arrayReg, expr.operands[0].variableName, varRegs, varTypes)
+    var checked = boundsCheckEnabled
+    if checked == 1 and consumeBoundsProof(expr.operands[0], expr.operands[1]) {
+        output.append("  ; bounds-proof: canonical zero-to-stable-length read\n")
+        checked = 0
+    }
     let nextBoundsCount = emitIndexBoundsCheckState(output, arrayReg,
-        indexReg, boundsCheckEnabled, boundsCheckLabelCount)
+        indexReg, checked, boundsCheckLabelCount)
     let arrayType = inferLoweredExpressionType(ctx, expr.operands[0])
     return IndexAccessResult.new(emitTypedIndexAccessState(output,
         arrayType, arrayReg, indexReg), nextBoundsCount)

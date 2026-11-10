@@ -1,0 +1,9 @@
+fun main() r: Int {
+    let x = 42
+    let y = x + 1
+    if y != 43 { return 1 }
+    println("Sanitizer test: 43")
+    return 0
+}
+
+main()

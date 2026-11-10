@@ -1,0 +1,206 @@
+/// Persistent native compute pipeline. Creation consumes its artifact on every
+/// path; prepared dispatch owners retain this pipeline and their buffer regions.
+import core.result.{Result, Ok, Err}
+import core.operation_context.{OperationContext}
+import compute.error.{GpuError, gpuFailure}
+import compute.capabilities.{GPU_FEATURE_SUBGROUP}
+import compute.vulkan_error.{gpuVkContextFailure}
+import compute.operation.{gpuCheckOperation}
+import compute.allocator.{GpuAllocator}
+import compute.vulkan_pipeline_device.{GpuVulkanPipelineDevice, gpuVkPipelineVersionSupported}
+import compute.vulkan_stream.{GpuVulkanStream, GpuVulkanStreamCore}
+import compute.vulkan_pipeline_artifact.{GpuVulkanArtifact, gpuVkPipelineIdentity, gpuVkPipelineOom}
+import compute.vulkan_abi.{gpuVkAllocate, gpuVkDrop, gpuVkU32, gpuVkU64}
+import compute.vulkan_pipeline_abi.{VulkanShaderInfo, VulkanLayoutBinding, VulkanSetLayoutInfo, VulkanPipelineLayoutInfo, VulkanPipelineStage, VulkanComputePipelineInfo, VulkanCacheInfo, vkCreateShaderModule, vkDestroyShaderModule, vkCreateDescriptorSetLayout, vkDestroyDescriptorSetLayout, vkCreatePipelineLayout, vkDestroyPipelineLayout, vkCreatePipelineCache, vkDestroyPipelineCache, vkGetPipelineCacheData, vkCreateComputePipelines, vkDestroyPipeline}
+import compute.vulkan_pipeline_cache.{GPU_VULKAN_CACHE_MAX_BYTES, GPU_VULKAN_CACHE_SCRATCH_BYTES, gpuVkSavePipelineCache, gpuVkCacheDecode}
+import fs.types.{Path}
+import memory.aligned_buffer.{OwnedBuffer}
+import memory.allocation.{allocationBudgetAvailable}
+import json.builder.{seen_string_clone_owned, seen_string_release_owned}
+
+@move
+class GpuVulkanPipeline {
+    var stream: GpuVulkanStreamCore
+    var artifact: GpuVulkanArtifact
+    var shader: UInt64
+    var layout: UInt64
+    var cache: UInt64
+    var pipeline: UInt64
+    var sets: Array<UInt64>
+    var cacheIdentity: String
+    var borrowers: Int
+    var retained: Bool
+    var closed: Bool
+    var maxX: UInt64
+    var maxY: UInt64
+    var maxZ: UInt64
+    var storageAlignment: UInt64
+    var uniformAlignment: UInt64
+    var storageRange: UInt64
+    var queueFamily: UInt32
+    var uniformRange: UInt64
+
+    static fun open(borrow allocator: GpuAllocator, borrow stream: GpuVulkanStream, borrow physical: GpuVulkanPipelineDevice, artifact: GpuVulkanArtifact, initialEnvelope: Array<Int>, operation: OperationContext) r: Result<GpuVulkanPipeline, GpuError> {
+        if stream.core.closed or allocator.core.closed {
+            artifact.release(); return Err<GpuVulkanPipeline, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.pipeline.open", "pipeline requires live allocator and stream owners"))
+        }
+        let owner = GpuVulkanPipeline{stream: stream.core, artifact: artifact, shader: 0 as UInt64, layout: 0 as UInt64, cache: 0 as UInt64, pipeline: 0 as UInt64, sets: Array<UInt64>(), cacheIdentity: seen_string_clone_owned(""), borrowers: 0, retained: false, closed: false, maxX: 0 as UInt64, maxY: 0 as UInt64, maxZ: 0 as UInt64, storageAlignment: 0 as UInt64, uniformAlignment: 0 as UInt64, storageRange: 0 as UInt64, uniformRange: 0 as UInt64, queueFamily: 0 as UInt32}
+        let info = stream.core.lease.core.info
+        let identity = gpuVkPipelineIdentity(info.identity.uuid, info.driverVersion, artifact.identity)
+        var initialCache = Array<Int>()
+        if initialEnvelope.length() > 0 {
+            let decoded = gpuVkCacheDecode(identity, initialEnvelope)
+            if decoded.isErr() {
+                let error = decoded.unwrapErr(); decoded.releaseContainer(); seen_string_release_owned(identity); initialCache.free()
+                let released = owner.release(); released.releaseContainer(); return Err<GpuVulkanPipeline, GpuError>(error)
+            }
+            initialCache.free(); initialCache = decoded.unwrap(); decoded.releaseContainer()
+        }
+        seen_string_release_owned(identity)
+        let created = owner.prepare(allocator, physical, initialCache, operation); initialCache.free()
+        if created.isErr() { let error = created.unwrapErr(); created.releaseContainer(); let released = owner.release(); released.releaseContainer(); return Err<GpuVulkanPipeline, GpuError>(error) }
+        created.releaseContainer(); return Ok<GpuVulkanPipeline, GpuError>(owner)
+    }
+    fun prepare(borrow allocator: GpuAllocator, borrow physical: GpuVulkanPipelineDevice, initialCache: Array<Int>, operation: OperationContext) r: Result<Bool, GpuError> {
+        if this.closed or this.retained or this.shader != (0 as UInt64) or this.cache != (0 as UInt64) or this.layout != (0 as UInt64) or this.pipeline != (0 as UInt64) or this.sets.length() != 0 or this.stream.closed {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.pipeline.open", "native pipeline construction is single-use"))
+        }
+        let core = this.stream; let info = core.lease.core.info; let ordinal = info.identity.ordinal
+        if allocator.core.closed or core.closed or not core.lease.valid() or allocator.core.lease.core != core.lease.core or allocator.core.lease.slot != core.lease.slot or allocator.core.lease.generation != core.lease.generation or not physical.matches(info) {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.pipeline.open", "pipeline requires the same live explicit Vulkan allocator, stream and physical provider"))
+        }
+        let ready = core.lease.admission("gpu.vulkan.pipeline.open")
+        if ready.isErr() { return ready }; ready.releaseContainer()
+        let a = this.artifact
+        if not gpuVkPipelineVersionSupported(physical.apiVersion, a.word(1)) {
+            return Err<Bool, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.vulkan.pipeline.open", "SPIR-V version exceeds the physical device or requested instance API"))
+        }
+        // OpCapability applies even when only another entry uses that feature.
+        // physicalValid admits only Shader and the compiler's core subgroup
+        // vocabulary; physical subgroup support cannot come from reflection.
+        var moduleOffset = 5
+        while moduleOffset < a.binary.length() / 4 {
+            let instruction = a.word(moduleOffset); let count = instruction >> 16
+            if count < 1 or count > a.binary.length() / 4 - moduleOffset { return Err<Bool, GpuError>(gpuFailure("gpu.unsupported_abi", "gpu.vulkan.pipeline.open", "module instruction extent is invalid")) }
+            if (instruction & 65535) == 17 and count == 2 {
+                let capability = a.word(moduleOffset + 1)
+                if capability >= 61 and capability <= 65 and (info.capabilities.features & GPU_FEATURE_SUBGROUP) == (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.vulkan.pipeline.open", "whole-module subgroup declarations exceed physical subgroup support")) }
+            }
+            moduleOffset = moduleOffset + count
+        }
+        if not allocationBudgetAvailable(131072) { return Err<Bool, GpuError>(gpuVkPipelineOom("gpu.vulkan.pipeline.open")) }
+        let retained = core.retain(operation)
+        if retained.isErr() { return retained }; retained.releaseContainer(); this.retained = true
+        let properties = physical.metadata.buffers[0]; let capabilities = info.capabilities
+        this.queueFamily = allocator.core.provider.queueFamily
+        // The physically derived shared allocation was matched to sharedBytes
+        // by artifact admission, before this device-limit comparison.
+        if a.groups > gpuVkU32(properties, 376 as UInt64) as Int or a.x as UInt64 > capabilities.maxWorkgroupX or a.y as UInt64 > capabilities.maxWorkgroupY or a.z as UInt64 > capabilities.maxWorkgroupZ or (a.x * a.y * a.z) as UInt64 > capabilities.maxThreads or a.sharedBytes as UInt64 > capabilities.maxSharedBytes or (a.requiredCapabilities & 1023) != a.requiredCapabilities or ((a.requiredCapabilities & 480) != 0 and (capabilities.features & GPU_FEATURE_SUBGROUP) == (0 as UInt64)) {
+            return Err<Bool, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.vulkan.pipeline.open", "reflected geometry or requirements exceed enabled native capabilities"))
+        }
+        var uniformCount = 0; var storageCount = 0; var index = 0
+        while index < a.bindings.length() { if a.bindings[index].descriptorType == 6 { uniformCount = uniformCount + 1 } else { storageCount = storageCount + 1 }; index = index + 1 }
+        if uniformCount > gpuVkU32(properties, 384 as UInt64) as Int or uniformCount > gpuVkU32(properties, 412 as UInt64) as Int or storageCount > gpuVkU32(properties, 388 as UInt64) as Int or storageCount > gpuVkU32(properties, 420 as UInt64) as Int {
+            return Err<Bool, GpuError>(gpuFailure("gpu.limit", "gpu.vulkan.pipeline.open", "reflected descriptor counts exceed device limits"))
+        }
+        this.maxX = gpuVkU32(properties, 532 as UInt64) as UInt64; this.maxY = gpuVkU32(properties, 536 as UInt64) as UInt64; this.maxZ = gpuVkU32(properties, 540 as UInt64) as UInt64
+        this.storageAlignment = gpuVkU64(properties, 640 as UInt64); this.uniformAlignment = gpuVkU64(properties, 632 as UInt64)
+        this.storageRange = gpuVkU32(properties, 340 as UInt64) as UInt64; this.uniformRange = gpuVkU32(properties, 336 as UInt64) as UInt64
+        if this.storageAlignment == (0 as UInt64) or this.uniformAlignment == (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.pipeline.open", "device descriptor alignment is invalid")) }
+        seen_string_release_owned(this.cacheIdentity); this.cacheIdentity = gpuVkPipelineIdentity(info.identity.uuid, info.driverVersion, a.identity)
+        if initialCache.length() > 0 {
+            if initialCache.length() < 32 or initialCache.length() > GPU_VULKAN_CACHE_MAX_BYTES { return Err<Bool, GpuError>(gpuFailure("gpu.cache_invalid", "gpu.vulkan.pipeline.open", "pipeline cache size is invalid")) }
+            var word = 0; index = 0; while index < 4 { word = word | (initialCache[index] << (index * 8)); index = index + 1 }
+            if word != 32 { return Err<Bool, GpuError>(gpuFailure("gpu.cache_invalid", "gpu.vulkan.pipeline.open", "pipeline cache header size is invalid")) }
+            index = 0
+            while index < 28 {
+                var expected = properties.data[24 + index] as Int
+                if index < 4 { expected = 0; if index == 0 { expected = 1 } }
+                else if index < 12 { expected = properties.data[20 + index] as Int }
+                else { expected = properties.data[292 + index - 12] as Int }
+                if initialCache[4 + index] != expected { return Err<Bool, GpuError>(gpuFailure("gpu.cache_invalid", "gpu.vulkan.pipeline.open", "pipeline cache device, vendor or UUID mismatch")) }
+                index = index + 1
+            }
+        }
+        let data = OwnedBuffer<UInt8>.allocate((initialCache.length() + 1) as UInt64, 1 as UInt64, 16 as UInt64)
+        if data.isErr() { data.unwrapErr().free(); data.releaseContainer(); return Err<Bool, GpuError>(gpuVkPipelineOom("gpu.vulkan.pipeline.cache")) }
+        let bytes = data.unwrap(); data.releaseContainer(); index = 0; while index < initialCache.length() { bytes.data[index] = initialCache[index] as UInt8; index = index + 1 }
+        let cacheInfo = VulkanCacheInfo{sType: 17 as UInt32, pNext: null as *Void, flags: 0 as UInt32, initialSize: initialCache.length() as UInt64, initialData: bytes.data as *const UInt8}
+        var cache = 0 as UInt64; let cached = vkCreatePipelineCache(core.device, (&cacheInfo) as *const VulkanCacheInfo, null as *Void, &cache); gpuVkDrop(bytes); this.cache = cache
+        if cached != (0 as Int32) { return Err<Bool, GpuError>(gpuVkContextFailure(core.lease, cached, "gpu.vulkan.pipeline.cache")) }
+        if cache == (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.pipeline.cache", "native pipeline cache identity is empty")) }
+        let code = OwnedBuffer<UInt8>.allocate(a.binary.length() as UInt64, 1 as UInt64, 16 as UInt64)
+        if code.isErr() { code.unwrapErr().free(); code.releaseContainer(); return Err<Bool, GpuError>(gpuVkPipelineOom("gpu.vulkan.pipeline.shader")) }
+        let binary = code.unwrap(); code.releaseContainer(); index = 0; while index < a.binary.length() { binary.data[index] = a.binary.byteAt(index) as UInt8; index = index + 1 }
+        let shaderInfo = VulkanShaderInfo{sType: 16 as UInt32, pNext: null as *Void, flags: 0 as UInt32, codeSize: a.binary.length() as UInt64, pCode: binary.data as *const UInt32}
+        var shader = 0 as UInt64; let compiled = vkCreateShaderModule(core.device, (&shaderInfo) as *const VulkanShaderInfo, null as *Void, &shader); gpuVkDrop(binary); this.shader = shader
+        if compiled != (0 as Int32) { return Err<Bool, GpuError>(gpuVkContextFailure(core.lease, compiled, "gpu.vulkan.pipeline.shader")) }
+        if shader == (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.pipeline.shader", "native shader identity is empty")) }
+        let scratchResult = gpuVkAllocate(4096 as UInt64)
+        if scratchResult.isErr() { scratchResult.unwrapErr().release(); scratchResult.releaseContainer(); return Err<Bool, GpuError>(gpuVkPipelineOom("gpu.vulkan.pipeline.layout")) }
+        let scratch = scratchResult.unwrap(); scratchResult.releaseContainer(); var group = 0
+        while group < a.groups {
+            let bindings = scratch.data as *VulkanLayoutBinding; var count = 0; index = 0
+            while index < a.bindings.length() { let binding = a.bindings[index]
+                if binding.group == group { bindings[count] = VulkanLayoutBinding{binding: binding.binding as UInt32, descriptorType: binding.descriptorType as UInt32, descriptorCount: binding.count as UInt32, stageFlags: 32 as UInt32, immutableSamplers: null as *Void}; count = count + 1 }; index = index + 1
+            }
+            let layoutInfo = VulkanSetLayoutInfo{sType: 32 as UInt32, pNext: null as *Void, flags: 0 as UInt32, bindingCount: count as UInt32, bindings: bindings as *const VulkanLayoutBinding}
+            var layout = 0 as UInt64; let created = vkCreateDescriptorSetLayout(core.device, (&layoutInfo) as *const VulkanSetLayoutInfo, null as *Void, &layout)
+            if layout != (0 as UInt64) { this.sets.push(layout) }
+            if created != (0 as Int32) { gpuVkDrop(scratch); return Err<Bool, GpuError>(gpuVkContextFailure(core.lease, created, "gpu.vulkan.pipeline.set_layout")) }
+            if layout == (0 as UInt64) { gpuVkDrop(scratch); return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.pipeline.set_layout", "native descriptor layout identity is empty")) }
+            group = group + 1
+        }
+        let sets = scratch.data as *UInt64; index = 0; while index < this.sets.length() { sets[index] = this.sets[index]; index = index + 1 }
+        let layoutInfo = VulkanPipelineLayoutInfo{sType: 30 as UInt32, pNext: null as *Void, flags: 0 as UInt32, setCount: this.sets.length() as UInt32, sets: sets as *const UInt64, pushCount: 0 as UInt32, pushRanges: null as *Void}
+        var layout = 0 as UInt64; let linked = vkCreatePipelineLayout(core.device, (&layoutInfo) as *const VulkanPipelineLayoutInfo, null as *Void, &layout); this.layout = layout; gpuVkDrop(scratch)
+        if linked != (0 as Int32) { return Err<Bool, GpuError>(gpuVkContextFailure(core.lease, linked, "gpu.vulkan.pipeline.layout")) }
+        if layout == (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.pipeline.layout", "native pipeline layout identity is empty")) }
+        let name = a.entry.toCString()
+        let stage = VulkanPipelineStage{sType: 18 as UInt32, pNext: null as *Void, flags: 0 as UInt32, stage: 32 as UInt32, module: shader, name: name as *const Char, specialization: null as *Void}
+        let pipelineInfo = VulkanComputePipelineInfo{sType: 29 as UInt32, pNext: null as *Void, flags: 0 as UInt32, stage: stage, layout: layout, base: 0 as UInt64, baseIndex: -1 as Int32}
+        var pipeline = 0 as UInt64; let built = vkCreateComputePipelines(core.device, cache, 1 as UInt32, (&pipelineInfo) as *const VulkanComputePipelineInfo, null as *Void, &pipeline); seen_cstr_free(name as *Void); this.pipeline = pipeline
+        if built != (0 as Int32) { return Err<Bool, GpuError>(gpuVkContextFailure(core.lease, built, "gpu.vulkan.pipeline.create")) }
+        if pipeline == (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.pipeline.create", "native pipeline identity is empty")) }
+        return Ok<Bool, GpuError>(true)
+    }
+    fun cacheBytes() r: Result<Array<Int>, GpuError> {
+        if this.closed { return Err<Array<Int>, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.cache", "pipeline is closed")) }
+        let ready = this.stream.lease.admission("gpu.vulkan.cache")
+        if ready.isErr() { let error = ready.unwrapErr(); ready.releaseContainer(); return Err<Array<Int>, GpuError>(error) }; ready.releaseContainer()
+        var size = 0 as UInt64; let measured = vkGetPipelineCacheData(this.stream.device, this.cache, &size, null as *UInt8)
+        if measured != (0 as Int32) { return Err<Array<Int>, GpuError>(gpuVkContextFailure(this.stream.lease, measured, "gpu.vulkan.cache")) }
+        if size < (32 as UInt64) or size > GPU_VULKAN_CACHE_MAX_BYTES as UInt64 { return Err<Array<Int>, GpuError>(gpuFailure("gpu.limit", "gpu.vulkan.cache", "native pipeline cache exceeds persistent byte bound")) }
+        // A doubled Array<Int> growth peak is below 24 bytes/logical byte;
+        // retain the packed native capture and typed error scratch as well.
+        if not allocationBudgetAvailable((size as Int) * 25 + GPU_VULKAN_CACHE_SCRATCH_BYTES) { return Err<Array<Int>, GpuError>(gpuVkPipelineOom("gpu.vulkan.cache.capture")) }
+        let allocated = OwnedBuffer<UInt8>.allocate(size, 1 as UInt64, 16 as UInt64)
+        if allocated.isErr() { allocated.unwrapErr().free(); allocated.releaseContainer(); return Err<Array<Int>, GpuError>(gpuVkPipelineOom("gpu.vulkan.cache")) }
+        let bytes = allocated.unwrap(); allocated.releaseContainer(); let copied = vkGetPipelineCacheData(this.stream.device, this.cache, &size, bytes.data)
+        if copied != (0 as Int32) { gpuVkDrop(bytes); return Err<Array<Int>, GpuError>(gpuVkContextFailure(this.stream.lease, copied, "gpu.vulkan.cache")) }
+        if size < (32 as UInt64) or size > bytes.byteLength { gpuVkDrop(bytes); return Err<Array<Int>, GpuError>(gpuFailure("gpu.cache_invalid", "gpu.vulkan.cache", "native pipeline cache capture is truncated or exceeds its measured byte span")) }
+        let output = Array<Int>(); var i = 0; while i < size as Int { output.push(bytes.data[i] as Int); i = i + 1 }
+        gpuVkDrop(bytes); return Ok<Array<Int>, GpuError>(output)
+    }
+    fun saveCache(path: Path, operation: OperationContext) r: Result<Bool, GpuError> {
+        let checked = gpuCheckOperation(operation, "gpu.vulkan.cache.save")
+        if checked.isErr() { return checked }; checked.releaseContainer()
+        let captured = this.cacheBytes(); if captured.isErr() { let error = captured.unwrapErr(); captured.releaseContainer(); return Err<Bool, GpuError>(error) }
+        let bytes = captured.unwrap(); captured.releaseContainer()
+        let saved = gpuVkSavePipelineCache(path, this.cacheIdentity, bytes, operation); bytes.free(); return saved
+    }
+    fun close() r: Result<Bool, GpuError> {
+        if this.closed { return Ok<Bool, GpuError>(false) }
+        if this.borrowers != 0 { return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.vulkan.pipeline.close", "prepared dispatch owners retain this pipeline")) }
+        let device = this.stream.device
+        if this.pipeline != (0 as UInt64) { vkDestroyPipeline(device, this.pipeline, null as *Void); this.pipeline = 0 as UInt64 }
+        if this.layout != (0 as UInt64) { vkDestroyPipelineLayout(device, this.layout, null as *Void); this.layout = 0 as UInt64 }
+        var i = 0; while i < this.sets.length() { vkDestroyDescriptorSetLayout(device, this.sets[i], null as *Void); i = i + 1 }; this.sets.free()
+        if this.shader != (0 as UInt64) { vkDestroyShaderModule(device, this.shader, null as *Void); this.shader = 0 as UInt64 }
+        if this.cache != (0 as UInt64) { vkDestroyPipelineCache(device, this.cache, null as *Void); this.cache = 0 as UInt64 }
+        if this.retained { this.stream.dropBorrow(); this.retained = false }
+        this.artifact.release(); seen_string_release_owned(this.cacheIdentity); this.closed = true; return Ok<Bool, GpuError>(true)
+    }
+    fun release() r: Result<Bool, GpuError> { let closed = this.close(); if closed.isErr() { return closed }; closed.releaseContainer(); this.free(); return Ok<Bool, GpuError>(true) }
+}
+extern "C" fun seen_cstr_free(value: *Void) r: Void

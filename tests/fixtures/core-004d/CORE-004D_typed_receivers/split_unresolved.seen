@@ -1,0 +1,9 @@
+class UnknownReceiver {
+    var value: Int
+}
+
+fun main() r: Int {
+    let text = UnknownReceiver{value: 1}
+    let parts = text.split(",")
+    return 0
+}

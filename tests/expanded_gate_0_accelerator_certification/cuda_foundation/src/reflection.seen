@@ -1,0 +1,133 @@
+/// Cold admission for the actual emitted foundation reflection, not a guessed ABI.
+import json.strict.{parseStrictJson, StrictJsonLimits}
+import json.parser.{destroyJsonParseResult}
+import json.value.{JsonValue}
+import json.builder.{JsonBuilder, JsonBuilder_new, destroyJsonBuilder, seen_string_release_owned}
+import crypto.sha256.{sha256}
+
+fun field(value: JsonValue, key: String) r: JsonValue {
+    let box = value.get(key)
+    if box == null { box.free(); return value }
+    let result = box.unwrap(); box.free(); return result
+}
+fun at(value: JsonValue, index: Int) r: JsonValue {
+    let box = value.getAt(index)
+    if box == null { box.free(); return value }
+    let result = box.unwrap(); box.free(); return result
+}
+fun text(value: JsonValue, key: String, expected: String) r: Bool {
+    let child = field(value, key); return child.isString() and child.getString() == expected
+}
+fun number(value: JsonValue, key: String, expected: Int) r: Bool {
+    let child = field(value, key); return child.isNumber() and child.getNumber() == (expected as Float)
+}
+fun array(value: JsonValue, key: String, count: Int) r: Bool {
+    let child = field(value, key); return child.isArray() and child.length() == count
+}
+fun hexDigest(value: JsonValue) r: Bool {
+    if not value.isString() or value.getString().length() != 64 { return false }
+    let digest = value.getString(); var i = 0
+    while i < 64 {
+        let byte = digest.byteAt(i)
+        if not ((byte >= 48 and byte <= 57) or (byte >= 97 and byte <= 102)) { return false }
+        i = i + 1
+    }; return true
+}
+fun bindingAbi(builder: JsonBuilder, index: Int) r: Void {
+    var kind = "storage"; var access = "read"; var resource = 1; var minimum = 0
+    if index == 1 { access = "write"; resource = 2 }
+    if index == 2 { kind = "uniform"; resource = 4; minimum = 16 }
+    builder.startObject(); builder.intProp("group", 0); builder.intProp("binding", index)
+    builder.stringProp("kind", kind); builder.stringProp("access", access); builder.intProp("type", resource * 1000 + 3)
+    builder.intProp("value_type", 3); builder.intProp("scalar_type", 3); builder.intProp("lanes", 1)
+    builder.intProp("element_stride", 4); builder.intProp("minimum_binding_bytes", minimum); builder.endObject()
+}
+fun parameterOffset(index: Int) r: Int {
+    if index == 0 { return 0 }; if index == 1 { return 8 }; if index == 2 { return 16 }
+    if index == 3 { return 24 }; if index == 4 { return 32 }; return 48
+}
+fun parameterBytes(index: Int) r: Int {
+    if index == 1 or index == 3 { return 4 }; if index == 4 { return 16 }; return 8
+}
+fun parameterAlignment(index: Int) r: Int { return parameterBytes(index) }
+fun parameterBinding(index: Int) r: Int {
+    if index < 2 { return 0 }; if index < 4 { return 1 }; if index == 4 { return 2 }; return 3
+}
+fun parameterKind(index: Int) r: String {
+    if index == 1 or index == 3 { return "storage_length" }
+    if index == 4 { return "uniform_value" }; if index == 5 { return "fault_address" }; return "storage_address"
+}
+fun parameterAbi(builder: JsonBuilder, index: Int) r: Void {
+    builder.startObject(); builder.intProp("index", index); builder.intProp("binding", parameterBinding(index))
+    builder.stringProp("kind", parameterKind(index)); builder.intProp("offset", parameterOffset(index))
+    builder.intProp("bytes", parameterBytes(index)); builder.intProp("alignment", parameterAlignment(index)); builder.endObject()
+}
+fun entryValid(entry: JsonValue) r: Bool {
+    if not text(entry, "parameter_abi", "seen-ptx-kernel-v1") or not number(entry, "packed_parameter_bytes", 56) or
+        not number(entry, "parameter_count", 6) or not number(entry, "shared_bytes", 0) or
+        not number(entry, "fault_binding", 3) or
+        not array(entry, "workgroup", 3) or not array(entry, "bindings", 3) or not array(entry, "parameters", 6) { return false }
+    let capabilityValue = field(entry, "required_capabilities")
+    if not capabilityValue.isNumber() { return false }
+    let capabilityNumber = capabilityValue.getNumber()
+    if not (capabilityNumber >= 0.0 and capabilityNumber <= 3.0) { return false }
+    let capabilities = capabilityValue.getInt()
+    if capabilities < 0 or capabilities > 3 or capabilityValue.getNumber() != (capabilities as Float) { return false }
+    let fault = field(entry, "requires_fault_buffer")
+    if not fault.isBool() or not fault.boolValue { return false }
+    let workgroup = field(entry, "workgroup"); var i = 0
+    while i < 3 {
+        let axis = at(workgroup, i); var expected = 1; if i == 0 { expected = 8 }
+        if not axis.isNumber() or axis.getNumber() != (expected as Float) { return false }; i = i + 1
+    }
+    let bindings = field(entry, "bindings"); i = 0
+    while i < 3 {
+        let b = at(bindings, i); var kind = "storage"; var access = "read"; var resource = 1; var minimum = 0
+        if i == 1 { access = "write"; resource = 2 }
+        if i == 2 { kind = "uniform"; resource = 4; minimum = 16 }
+        if not number(b, "group", 0) or not number(b, "binding", i) or not text(b, "kind", kind) or not text(b, "access", access) or
+            not number(b, "type", resource * 1000 + 3) or not number(b, "value_type", 3) or not number(b, "scalar_type", 3) or
+            not number(b, "lanes", 1) or not number(b, "element_stride", 4) or not number(b, "minimum_binding_bytes", minimum) { return false }
+        i = i + 1
+    }
+    let parameters = field(entry, "parameters"); i = 0
+    while i < 6 {
+        let p = at(parameters, i)
+        if not number(p, "index", i) or not number(p, "binding", parameterBinding(i)) or not text(p, "kind", parameterKind(i)) or
+            not number(p, "offset", parameterOffset(i)) or not number(p, "bytes", parameterBytes(i)) or
+            not number(p, "alignment", parameterAlignment(i)) { return false }; i = i + 1
+    }
+    // Reproduce the emitter's canonical ABI hash, including the empty module
+    // specialization list. This is separate from parent-owned cubin/PTX provenance.
+    let builder = JsonBuilder_new(); builder.startObject(); builder.key("workgroup"); builder.startArray()
+    builder.number(8); builder.number(1); builder.number(1); builder.endArray(); builder.key("bindings"); builder.startArray()
+    i = 0; while i < 3 { bindingAbi(builder, i); i = i + 1 }; builder.endArray()
+    builder.intProp("required_capabilities", capabilities); builder.intProp("shared_bytes", 0); builder.boolProp("requires_fault_buffer", 1)
+    builder.intProp("fault_binding", 3); builder.stringProp("parameter_abi", "seen-ptx-kernel-v1"); builder.intProp("packed_parameter_bytes", 56)
+    builder.key("parameters"); builder.startArray(); i = 0; while i < 6 { parameterAbi(builder, i); i = i + 1 }; builder.endArray()
+    builder.intProp("parameter_count", 6); builder.key("specializations"); builder.startArray(); builder.endArray(); builder.endObject()
+    let canonical = builder.build(); destroyJsonBuilder(builder); let hashed = sha256(canonical); seen_string_release_owned(canonical)
+    if hashed.isErr() { hashed.unwrapErr().free(); hashed.releaseContainer(); return false }
+    let digest = hashed.unwrap(); hashed.releaseContainer(); let valid = text(entry, "abi_sha256", digest); seen_string_release_owned(digest)
+    return valid
+}
+fun admitReflection(reflection: String) r: Bool {
+    let limits = StrictJsonLimits{maxInputBytes: 4194304, maxDepth: 16, maxValues: 65536, maxStringBytes: 4096}
+    let parsed = parseStrictJson(reflection, limits); limits.free()
+    if parsed.isErr() { parsed.unwrapErr().free(); parsed.releaseContainer(); return false }
+    let tree = parsed.unwrap(); parsed.releaseContainer(); var valid = false
+    if tree.value != null {
+        let root = tree.value.unwrap(); let entries = field(root, "entries")
+        if text(root, "schema", "seen-gpu-reflection-v1") and text(root, "ir_schema", "seen-gpu-ir-v1") and
+            text(root, "backend", "cuda") and text(root, "target", "sm_89") and text(root, "fallback", "error") and
+            hexDigest(field(root, "ir_sha256")) and array(root, "specializations", 0) and entries.isArray() and entries.length() <= 64 {
+            var matches = 0; var i = 0
+            while i < entries.length() {
+                let entry = at(entries, i)
+                if text(entry, "name", "foundation") { matches = matches + 1; valid = entryValid(entry) }
+                i = i + 1
+            }; valid = valid and matches == 1
+        }
+    }
+    destroyJsonParseResult(tree, true); return valid
+}

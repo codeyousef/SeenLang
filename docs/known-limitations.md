@@ -93,10 +93,11 @@ the nondeterministic usage where allowed.
   explicit `@move` and `@c_resource` bindings. Ownership transfer through
   closure environments and task captures remains unsupported rather than
   implicitly copied.
-- `parallel_for` is capture-free in 0.22.9. Its pthread worker callback has no
-  outer-local environment, so examples must not read or mutate enclosing
-  locals. Explicit value/reference/move captures and compiler-proven disjoint
-  mutation are future work.
+- `parallel_for` supports compiler-generated immutable `Share` capture
+  environments, with parent ownership retained until workers join. Arbitrary
+  mutable outer-local captures and owned closure environments are unsupported;
+  use checked synchronization or explicit `Send` task state. See
+  [Concurrency](concurrency.md).
 - `@async` and `await` lower coroutine syntax, but they do not implicitly start
   operating-system threads. Production coordination uses the bounded
   `async.mod` scope/executor surface; no poll-all or best-effort cancellation
@@ -108,9 +109,9 @@ the nondeterministic usage where allowed.
 
 ## SIMD and GPU
 
-- Native SIMD coverage is currently `f32x4`, `f32x8`, `f64x2`, `f64x4`,
-  `i32x4`, and `i32x8`. Low-level vector load/store builtins take raw addresses,
-  not `(Array, offset)` arguments.
+- Native SIMD coverage includes `f32x4`, `f32x8`, `f32x16`, `f64x2`, `f64x4`,
+  `f64x8`, `i32x4`, `i32x8`, and `i32x16`. Low-level vector load/store
+  builtins take raw addresses, not `(Array, offset)` arguments.
 - `--emit-glsl` emits inspectable shader/reflection artifacts and invokes
   `glslc` when available, but arbitrary Seen shader bodies are not guaranteed
   to translate faithfully. The generated host wrapper does not construct a

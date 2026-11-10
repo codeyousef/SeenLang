@@ -4,7 +4,7 @@ import parser.real_parser.{ParserExpressionNode}
 import str.string.{StringBuilder}
 import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
 import codegen.ir_codegen_type_state.{mapTypeState}
-import codegen.ir_enum_ctor_gen.{lookupEnumVariantTagStateImpl}
+import codegen.ir_enum_ctor_gen.{lookupEnumVariantTagStateImpl, isEnumVariantStateImpl}
 import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
 import codegen.ir_string_builder_cast_emit.{emitCastExprImpl}
 import codegen.ir_optimization.{getNextRegFn}
@@ -15,6 +15,16 @@ fun emitCastSpecialExpressionState(ctx: CodegenLoweringContext,
     let cSrcReg = lowerExpression(ctx, expr.operands[0])
     let cSrcType = inferLoweredExpressionType(ctx, expr.operands[0])
     let cTgtType = expr.literalValue
+    // Pointer spellings and aliases are language types; the emitter's pointer
+    // conversions require the actual physical ABI, not a lowercase-name guess.
+    let sourcePhysical = mapTypeState(cSrcType)
+    let targetPhysical = mapTypeState(cTgtType)
+    if sourcePhysical == "ptr" and targetPhysical == "i64" {
+        return emitCastExprImpl(output, getFeatureRegBoxImpl(), cSrcReg, "ptr", "Int")
+    }
+    if sourcePhysical == "i64" and targetPhysical == "ptr" {
+        return emitCastExprImpl(output, getFeatureRegBoxImpl(), cSrcReg, "Int", "ptr")
+    }
     return emitCastExprImpl(output, getFeatureRegBoxImpl(), cSrcReg,
         cSrcType, cTgtType)
 }
@@ -26,9 +36,9 @@ fun emitIsExpressionTestState(ctx: CodegenLoweringContext,
 
     let isSubjectReg = lowerExpression(ctx, expr.operands[0])
     let isTypeName = expr.literalValue
-    let isTagIdx = lookupEnumVariantTagStateImpl(isTypeName,
-        enumVariantNames, enumVariantTags, enumVariantCount)
-    if isTagIdx >= 0 {
+    if isEnumVariantStateImpl(isTypeName, enumVariantNames, enumVariantCount) {
+        let isTagIdx = lookupEnumVariantTagStateImpl(isTypeName,
+            enumVariantNames, enumVariantTags, enumVariantCount)
         let isTagLoad = getNextRegFn(getFeatureRegBoxImpl())
         output.append("  " + isTagLoad + " = load i64, ptr " +
             isSubjectReg + "\n")

@@ -16,6 +16,18 @@ PACKAGE_FIXTURE="$ROOT/tests/fixtures/external_package"
 FUZZ_SECONDS="${SEEN_P0_GATE0_FUZZ_SECONDS:-60}"
 
 fail() { echo "gate0-certification: p0.gate0.001.$1: $2" >&2; exit "${3:-1}"; }
+MODE=full
+case "$#" in
+    0) ;;
+    1)
+        case "$1" in
+            --bootstrap-candidate) MODE=bootstrap ;;
+            --finalize-candidate) MODE=finalize ;;
+            *) fail invalid "unknown certification option" 2 ;;
+        esac
+        ;;
+    *) fail invalid "expected at most one certification option" 2 ;;
+esac
 
 [ "$(uname -s)" = Linux ] || fail platform "clean-checkout certification requires Linux"
 [ "${SEEN_CI_CONTAINMENT_IN_SCOPE:-0}" = 1 ] || fail unverified "required-CI containment marker is missing" 126
@@ -56,10 +68,23 @@ trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-echo "Gate 0: building and verifying the compiler from the hash-pinned frozen seed"
-SEEN_GO="${SEEN_GO:-$(command -v go || true)}" \
-    SEEN_LOW_MEMORY=1 SEEN_JOBS=1 SEEN_OPT_JOBS=1 \
-    "$ROOT/scripts/safe_rebuild.sh" --tier full
+if [ "$MODE" = finalize ]; then
+    echo "Gate 0: validating every acceptance group before candidate installation"
+    python3 "$ROOT/scripts/ci_bootstrap_candidate.py" finalize \
+        --root "$ROOT" --candidate-dir "$ROOT/target/seen-build/bootstrap-candidate" \
+        --receipt-dir "$ROOT/target/seen-build/acceptance-receipts"
+else
+    echo "Gate 0: building the compiler from the hash-pinned frozen seed"
+    rebuild_options=(--tier full)
+    if [ "$MODE" = bootstrap ]; then rebuild_options+=(--bootstrap-candidate); fi
+    SEEN_GO="${SEEN_GO:-$(command -v go || true)}" \
+        SEEN_LOW_MEMORY=1 SEEN_JOBS=1 SEEN_OPT_JOBS=1 SEEN_TRACE_BUILD=1 \
+        "$ROOT/scripts/safe_rebuild.sh" "${rebuild_options[@]}"
+    if [ "$MODE" = bootstrap ]; then
+        echo "Gate 0: candidate only; complete acceptance and final certification remain required"
+        exit 0
+    fi
+fi
 
 [ -x "$ROOT/compiler_seen/target/seen" ] || fail unverified "full rebuild did not install the compiler"
 [ -x "$PACKAGE_CLIENT" ] || fail unverified "full rebuild did not install the package client"
@@ -138,5 +163,11 @@ if [ -n "$(git status --porcelain=v1 --untracked-files=all)" ]; then
     fail invalid "certification changed the checkout"
 fi
 if [ -n "$(jobs -pr)" ]; then fail unverified "certification leaked child jobs"; fi
+if [ "$MODE" = finalize ]; then
+    source "$ROOT/scripts/build_trace_common.sh"
+    seen_build_trace_init gate0-finalize
+    SEEN_PACKAGE_CLIENT_BIN="$PACKAGE_CLIENT" \
+        seen_build_write_full_release_stamp "$ROOT" "$ROOT/compiler_seen/target/seen"
+fi
 echo "Gate 0 evidence: $EVIDENCE"
 echo "PASS: P0-GATE0-001 clean-checkout certification"

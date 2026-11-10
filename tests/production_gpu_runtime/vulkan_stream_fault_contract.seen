@@ -1,0 +1,116 @@
+import compute.vulkan_stream.{GpuVulkanStream, GpuVulkanEvent}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.error.{GpuError}
+import core.result.{Result}
+import vulkan_mapping_fixture_support.{mappingWorld}
+import env.env.{args, releaseArgs}
+import device_fixture_support.{gpuFixtureRejected}
+import provider_fixture_support.{completed}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+
+private fun streamFaultOpened(result: Result<GpuVulkanStream, GpuError>) r: GpuVulkanStream {
+    if result.isErr() { abort("stream fault failed before native admission") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun submitted(result: Result<UInt64, GpuError>) r: UInt64 {
+    if result.isErr() { abort("stream fault unexpectedly rejected submission") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun rejected(result: Result<UInt64, GpuError>, code: String, progress: UInt64) r: Void {
+    if result.isOkay() { abort("native stream fault was ignored") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code or error.progress != progress { println(error.code); abort("stream fault code or accepted progress differs") }
+    error.release()
+}
+fun rejectedEvent(result: Result<GpuVulkanEvent, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("uncertain or lost native event was created") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code { println(error.code); abort("unavailable event diagnostic differs") }
+    error.release()
+}
+fun finish(borrow owner: GpuVulkanStream, lost: Bool) r: Void {
+    var fuel = 100000
+    while fuel > 0 {
+        let observed = owner.poll(1 as UInt64)
+        if observed.isErr() {
+            let error = observed.unwrapErr(); observed.releaseContainer()
+            if not lost or error.code != "gpu.device_lost" or owner.core.inFlight != 0 { abort("stream device loss did not retire native use") }
+            error.release(); return
+        }
+        let done = observed.unwrap(); observed.releaseContainer()
+        if done {
+            if lost { abort("lost timeline validated successful outputs") }
+            return
+        }
+        fuel = fuel - 1
+    }
+    abort("bounded stream fault poll fuel exhausted")
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics()
+    let arguments = args()
+    if arguments.length() != 3 { abort("stream fault requires mode and diagnostic") }
+    let mode = arguments[1]; let expected = arguments[2]
+    let world = mappingWorld(GpuMemoryKind.HostCoherent); let op = world.operation
+    let first = GpuVulkanStream.open(world.allocator, 2, op)
+    if mode == "copy-semaphore-status" or mode == "copy-semaphore-empty" or mode == "timeline-none" {
+        if first.isOkay() { abort("native stream construction fault was ignored") }
+        let error = first.unwrapErr(); first.releaseContainer()
+        if error.code != expected { println(error.code); abort("native stream construction diagnostic differs") }
+        error.release()
+    } else {
+        let a = streamFaultOpened(first); let b = streamFaultOpened(GpuVulkanStream.open(world.allocator, 2, op))
+        if submitted(a.signal(op)) != (1 as UInt64) { abort("fault dependency source sequence differs") }
+        let created = a.event(1 as UInt64, op)
+        if created.isErr() { abort("fault dependency event rejected") }
+        let dependency = created.unwrap(); created.releaseContainer()
+        if mode == "stream-post-submit-timeout" { op.monotonicDeadline = seen_time_monotonic_nanos() + (1000000000 as Int64) }
+        let admitted = b.wait(dependency, op)
+        if mode == "stream-submit-oom" {
+            rejected(admitted, expected, 0 as UInt64)
+            if b.core.lastSubmitted != (0 as UInt64) or b.core.inFlight != 0 or a.core.waitBorrowers != 0 or b.core.poisoned {
+                abort("guaranteed OOM rejection consumed signal slot or dependency borrow")
+            }
+            if submitted(b.wait(dependency, op)) != (1 as UInt64) { abort("OOM retry could not reuse exact signal and slot") }
+        } else if mode == "stream-submit-lost" or mode == "stream-submit-unknown" {
+            rejected(admitted, expected, 1 as UInt64)
+            if not b.core.poisoned or b.core.inFlight != 1 or a.core.waitBorrowers != 1 { abort("uncertain accepted work discarded dependency ownership") }
+        } else {
+            if submitted(admitted) != (1 as UInt64) { abort("native dependency signal differs") }
+        }
+        completed(dependency.release(), true)
+        gpuFixtureRejected(a.close(), "gpu.busy"); gpuFixtureRejected(b.close(), "gpu.busy")
+        if mode == "copy-poll-oom" {
+            gpuFixtureRejected(b.poll(1 as UInt64), expected)
+            if b.core.inFlight != 1 or a.core.waitBorrowers != 1 { abort("failed poll discarded native dependency retention") }
+        }
+        if mode == "copy-poll-timeout" {
+            completed(b.poll(1 as UInt64), false)
+            if b.core.inFlight != 1 or a.core.waitBorrowers != 1 { abort("timeout poll released native dependency retention") }
+        }
+        if mode == "stream-post-submit-timeout" and seen_time_monotonic_nanos() <= op.monotonicDeadline { abort("post-acceptance test clock did not expire") }
+        op.cancellation = true
+        let lost = mode == "stream-submit-lost" or mode == "copy-poll-lost"
+        finish(b, lost)
+        if a.core.waitBorrowers != 0 { abort("native completion retained foreign semaphore borrower") }
+        finish(a, lost)
+        op.cancellation = false; op.monotonicDeadline = 9223372036854775807 as Int64
+        if lost { rejected(b.signal(op), "gpu.device_lost", 0 as UInt64) }
+        if mode == "stream-submit-unknown" { rejected(b.signal(op), "gpu.unavailable", 0 as UInt64) }
+        if lost {
+            gpuFixtureRejected(b.core.retain(op), "gpu.device_lost")
+            rejectedEvent(b.event(1 as UInt64, op), "gpu.device_lost")
+        }
+        if mode == "stream-submit-unknown" {
+            gpuFixtureRejected(b.core.retain(op), "gpu.unavailable")
+            rejectedEvent(b.event(1 as UInt64, op), "gpu.unavailable")
+        }
+        completed(a.release(), true); completed(b.release(), true)
+    }
+    world.release(); releaseArgs(arguments)
+    if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics { abort("native stream fault retained Seen ownership") }
+    println("PASS: GPU-006D native stream faults preserve retry signals uncertain acceptance foreign dependencies and exact cleanup")
+    return 0
+}

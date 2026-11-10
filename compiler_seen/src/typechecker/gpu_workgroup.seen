@@ -1,0 +1,45 @@
+/// One checked workgroup parser shared by validation and AST extraction.
+import typechecker.gpu_types.{gpuTrimStart, gpuTrimEnd, gpuRangePrefix, gpuBoundedDecimalRange, gpuWorkgroupValid}
+class GpuWorkgroup {
+    var valid: Bool
+    var x: Int
+    var y: Int
+    var z: Int
+    fun setDimension(index: Int, value: Int) r: Void {
+        if index == 0 { this.x = value }
+        else if index == 1 { this.y = value }
+        else if index == 2 { this.z = value }
+        else { this.valid = false }
+    }
+}
+fun gpuWorkgroupValue(text: String, start: Int, end: Int) r: Int {
+    let first = gpuTrimStart(text, start, end)
+    return gpuBoundedDecimalRange(text, first, gpuTrimEnd(text, first, end), 1024)
+}
+fun gpuParseWorkgroup(arguments: Array<String>) r: GpuWorkgroup {
+    let result = GpuWorkgroup{valid: true, x: 64, y: 1, z: 1}
+    if arguments.length() > 3 { result.valid = false; return result }
+    var i = 0
+    while i < arguments.length() {
+        let text = arguments[i]
+        if text.length() > 256 { result.valid = false; return result }
+        var start = gpuTrimStart(text, 0, text.length()); let end = gpuTrimEnd(text, start, text.length())
+        if (gpuRangePrefix(text, start, end, "workgroup:") or gpuRangePrefix(text, start, end, "workgroup=")) and i == 0 {
+            start = gpuTrimStart(text, start + 10, end)
+        }
+        if end - start >= 2 and text.byteAt(start) == 91 and text.byteAt(end - 1) == 93 and i == 0 and arguments.length() == 1 {
+            var piece = start + 1; var cursor = piece; var dimension = 0
+            while cursor < end {
+                if cursor == end - 1 or text.byteAt(cursor) == 44 {
+                    if dimension >= 3 { result.valid = false; break }
+                    result.setDimension(dimension, gpuWorkgroupValue(text, piece, cursor))
+                    dimension = dimension + 1; piece = cursor + 1
+                }
+                cursor = cursor + 1
+            }
+        } else { result.setDimension(i, gpuWorkgroupValue(text, start, end)) }
+        i = i + 1
+    }
+    result.valid = result.valid and gpuWorkgroupValid(result.x, result.y, result.z)
+    return result
+}

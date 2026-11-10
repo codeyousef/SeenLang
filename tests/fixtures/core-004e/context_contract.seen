@@ -62,12 +62,20 @@ fun core004eInputs(epoch: String, seed: String, environmentValue: String)
         environment: environment}
 }
 
+// Diagnostics are the application's explicit I/O boundary, not context policy.
+@nondeterministic
 fun core004eFail(name: String, detail: String) r: Int {
     println("FAIL: " + name + " " + detail)
     return 1
 }
 
-fun main() r: Int {
+@nondeterministic
+fun core004ePass(name: String) r: Void {
+    println("PASS: " + name)
+}
+
+// Keep public-context construction and assertions inside the checked graph.
+fun core004eContract() r: Int {
     let operation = core004eOperation(false)
     let created = createDeterministicExecutionContext(
         core004eInputs("1700000000", "1101", "granted-value"), operation)
@@ -80,7 +88,7 @@ fun main() r: Int {
     if epoch.isErr() or epoch.unwrap() != (1700000000 as Int64) {
         return core004eFail("CORE-004E_epoch_happy", "epoch mismatch")
     }
-    println("PASS: CORE-004E_epoch_happy")
+    core004ePass("CORE-004E_epoch_happy")
 
     let randomA = deterministicRandomAt(context, 7 as UInt64, operation)
     let randomB = deterministicRandomAt(context, 7 as UInt64, operation)
@@ -91,7 +99,7 @@ fun main() r: Int {
 
         return core004eFail("CORE-004E_seed_happy", "PRNG mismatch")
     }
-    println("PASS: CORE-004E_seed_happy")
+    core004ePass("CORE-004E_seed_happy")
 
     let missingEpoch = createDeterministicExecutionContext(
         core004eInputs("", "1101", "granted-value"), operation)
@@ -101,7 +109,7 @@ fun main() r: Int {
 
         return core004eFail("CORE-004E_missing_epoch", "wrong diagnostic")
     }
-    println("PASS: CORE-004E_missing_epoch")
+    core004ePass("CORE-004E_missing_epoch")
 
     let invalidSeed = createDeterministicExecutionContext(
         core004eInputs("1700000000", "not-a-seed", "granted-value"),
@@ -112,7 +120,7 @@ fun main() r: Int {
 
         return core004eFail("CORE-004E_invalid_seed", "wrong diagnostic")
     }
-    println("PASS: CORE-004E_invalid_seed")
+    core004ePass("CORE-004E_invalid_seed")
 
     let maximumSeed = createDeterministicExecutionContext(
         core004eInputs("1700000000", "18446744073709551615",
@@ -142,13 +150,13 @@ fun main() r: Int {
 
         return core004eFail("CORE-004E_env_denied", "grant mismatch")
     }
-    println("PASS: CORE-004E_env_denied")
+    core004ePass("CORE-004E_env_denied")
 
     if context.locale.locale != "C.UTF-8" or
         context.locale.encoding != "UTF-8" {
         return core004eFail("CORE-004E_locale_pinned", "locale mismatch")
     }
-    println("PASS: CORE-004E_locale_pinned")
+    core004ePass("CORE-004E_locale_pinned")
 
     let allowedPath = authorizeDeterministicFilesystemObservation(context,
         "/tmp", operation)
@@ -176,7 +184,7 @@ fun main() r: Int {
         return core004eFail("CORE-004E_external_input_denied",
             "capability mismatch")
     }
-    println("PASS: CORE-004E_external_input_denied")
+    core004ePass("CORE-004E_external_input_denied")
 
     let processContext = deterministicContextFromProcess(
         DeterministicContextRequest{locale: core004eLocale(),
@@ -194,7 +202,7 @@ fun main() r: Int {
 
         return core004eFail("CORE-004E_run_parity", "context mismatch")
     }
-    println("PASS: CORE-004E_run_parity")
+    core004ePass("CORE-004E_run_parity")
 
     let cancelled = createDeterministicExecutionContext(
         core004eInputs("1700000000", "1101", "granted-value"),
@@ -204,7 +212,7 @@ fun main() r: Int {
 
         return core004eFail("CORE-004E_cancel", "wrong diagnostic")
     }
-    println("PASS: CORE-004E_cancel")
+    core004ePass("CORE-004E_cancel")
 
     let expiredOperation = OperationContext{cancellation: false,
         monotonicDeadline: -1 as Int64, limits: operation.limits,
@@ -218,4 +226,9 @@ fun main() r: Int {
         return core004eFail("CORE-004E_cancel", "deadline was not enforced")
     }
     return 0
+}
+
+@nondeterministic
+fun main() r: Int {
+    return core004eContract()
 }

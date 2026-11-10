@@ -1,0 +1,133 @@
+/// Same-directory exclusive staging, file fsync, atomic replacement, directory
+/// fsync. A competing/stale .pending file is an explicit failure, never reused.
+/// A failure after rename reports progress=1: visibility committed, durability
+/// was not established. The previous destination is untouched before rename.
+import core.result.{Result, Ok, Err}
+import core.option.{Some}
+import core.operation_context.{OperationContext}
+import compute.error.{GpuError, gpuFailure}
+import fs.types.{Path, OpenOptions, DirectIoPolicy, FsError, fsFailure}
+import fs.file.{File, seen_cstr_free, seen_fs_pwrite_array_result, seen_fs_sync}
+import fs.operations.{seen_fs_rename, seen_fs_remove_path}
+import json.builder.{seen_string_release_owned, seen_string_clone_owned}
+import compute.operation.{gpuCheckOperation}
+fun gpuVkCacheFsFailure(source: FsError, operation: String) r: GpuError {
+    var code = "gpu.unavailable"
+    if source.code == "fs.cancelled" { code = "gpu.cancelled" }
+    if source.code == "fs.timeout" { code = "gpu.timeout" }
+    if source.code == "fs.limit" { code = "gpu.limit" }
+    if source.code == "fs.exists" { code = "gpu.busy" }
+    if source.code == "fs.invalid" or source.code == "fs.range" or source.code == "fs.alignment" { code = "gpu.invalid" }
+    if source.code == "fs.unsupported" or source.code == "fs.cross_device" { code = "gpu.unsupported_capability" }
+    let error = gpuFailure(code, operation, source.code)
+    error.nativeCode.free(); error.nativeCode = Some<Int64>(source.nativeStatus as Int64)
+    error.retryable = source.retryable; source.free(); return error
+}
+fun gpuVkCachePathDrop(path: Path) r: Void { path.raw.free(); path.free() }
+fun gpuVkCacheSync(borrow file: File, operation: OperationContext) r: Result<Bool, GpuError> {
+    let checked = gpuCheckOperation(operation, "gpu.vulkan.cache.sync")
+    if checked.isErr() { return checked }; checked.releaseContainer()
+    let status = seen_fs_sync(file.handle, 0 as Int32)
+    if status != (0 as Int32) { return Err<Bool, GpuError>(gpuVkCacheFsFailure(fsFailure(status, "sync"), "gpu.vulkan.cache.sync")) }
+    return Ok<Bool, GpuError>(true)
+}
+fun gpuVkCacheStage(borrow file: File, bytes: Array<Int>, operation: OperationContext) r: Result<Bool, GpuError> {
+    var written = 0
+    while written < bytes.length() {
+        let checked = gpuCheckOperation(operation, "gpu.vulkan.cache.write")
+        if checked.isErr() { return checked }; checked.releaseContainer()
+        let count = seen_fs_pwrite_array_result(file.handle, written as UInt64, bytes, written as Int64, (bytes.length() - written) as Int64)
+        if count < (0 as Int64) { return Err<Bool, GpuError>(gpuVkCacheFsFailure(fsFailure((-count) as Int32, "write"), "gpu.vulkan.cache.write")) }
+        if count == (0 as Int64) or count > (bytes.length() - written) as Int64 {
+            return Err<Bool, GpuError>(gpuVkCacheFsFailure(fsFailure(4 as Int32, "write"), "gpu.vulkan.cache.write"))
+        }
+        written = written + (count as Int)
+    }
+    return gpuVkCacheSync(file, operation)
+}
+fun gpuVkCacheFinishFile(file: File, result: Result<Bool, GpuError>) r: Result<Bool, GpuError> {
+    // close consumes the handle even on failure; it must never be retried.
+    let closed = file.close(); file.directIo.free(); file.free()
+    if closed.isErr() {
+        let error = gpuVkCacheFsFailure(closed.unwrapErr(), "gpu.vulkan.cache.close"); closed.releaseContainer()
+        if result.isErr() { result.unwrapErr().causes.push(error); return result }
+        result.releaseContainer(); return Err<Bool, GpuError>(error)
+    }
+    closed.releaseContainer(); return result
+}
+fun gpuVkCacheDiscard(temporary: Path, text: String, error: GpuError) r: Result<Bool, GpuError> {
+    // Called only after our exclusive create succeeded, never for foreign staging.
+    let source = text.toCString()
+    let status = seen_fs_remove_path(text.length() as Int64, source as *const Char, 0 as Int32)
+    seen_cstr_free(source as *Void)
+    if status != (0 as Int32) { error.causes.push(gpuVkCacheFsFailure(fsFailure(status, "remove"), "gpu.vulkan.cache.cleanup")) }
+    gpuVkCachePathDrop(temporary); seen_string_release_owned(text)
+    return Err<Bool, GpuError>(error)
+}
+fun gpuVkCacheSyncDirectory(destination: Path, operation: OperationContext) r: Result<Bool, GpuError> {
+    let checked = gpuCheckOperation(operation, "gpu.vulkan.cache.directory")
+    if checked.isErr() { return checked }; checked.releaseContainer()
+    let text = destination.asString(); var slash = text.length() - 1
+    while slash >= 0 and text.byteAt(slash) != 47 { slash = slash - 1 }
+    var parentText = seen_string_clone_owned(".")
+    if slash >= 0 {
+        seen_string_release_owned(parentText)
+        if slash == 0 { parentText = seen_string_clone_owned("/") } else { parentText = text.substring(0, slash) }
+    }
+    let parentPath = Path.fromString(parentText)
+    if parentPath.isErr() {
+        let error = gpuVkCacheFsFailure(parentPath.unwrapErr(), "gpu.vulkan.cache.directory")
+        parentPath.releaseContainer(); seen_string_release_owned(parentText); return Err<Bool, GpuError>(error)
+    }
+    let parent = parentPath.unwrap(); parentPath.releaseContainer()
+    let options = OpenOptions{read: true, write: false, create: false, truncate: false, append: false, exclusive: false, directory: true, noFollow: true}
+    let opened = File.open(operation, parent, options, DirectIoPolicy.Off); options.free()
+    if opened.isErr() {
+        let error = gpuVkCacheFsFailure(opened.unwrapErr(), "gpu.vulkan.cache.directory")
+        opened.releaseContainer(); gpuVkCachePathDrop(parent); seen_string_release_owned(parentText); return Err<Bool, GpuError>(error)
+    }
+    let directory = opened.unwrap(); opened.releaseContainer()
+    let synced = gpuVkCacheSync(directory, operation)
+    let result = gpuVkCacheFinishFile(directory, synced)
+    gpuVkCachePathDrop(parent); seen_string_release_owned(parentText); return result
+}
+fun gpuVkAtomicCacheWrite(destination: Path, bytes: Array<Int>, operation: OperationContext) r: Result<Bool, GpuError> {
+    let checked = gpuCheckOperation(operation, "gpu.vulkan.cache.write")
+    if checked.isErr() { return checked }; checked.releaseContainer()
+    if destination.asString().endsWith(".pending") {
+        return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.cache.write", "cache destination uses the reserved staging suffix"))
+    }
+    let temporaryText = destination.asString() + ".pending"; let temporaryPath = Path.fromString(temporaryText)
+    if temporaryPath.isErr() {
+        let error = gpuVkCacheFsFailure(temporaryPath.unwrapErr(), "gpu.vulkan.cache.open")
+        temporaryPath.releaseContainer(); seen_string_release_owned(temporaryText); return Err<Bool, GpuError>(error)
+    }
+    let temporary = temporaryPath.unwrap(); temporaryPath.releaseContainer(); let options = OpenOptions.createNew()
+    let opened = File.open(operation, temporary, options, DirectIoPolicy.Off); options.free()
+    if opened.isErr() {
+        let error = gpuVkCacheFsFailure(opened.unwrapErr(), "gpu.vulkan.cache.open")
+        opened.releaseContainer(); gpuVkCachePathDrop(temporary); seen_string_release_owned(temporaryText); return Err<Bool, GpuError>(error)
+    }
+    let file = opened.unwrap(); opened.releaseContainer()
+    let written = gpuVkCacheStage(file, bytes, operation)
+    let staged = gpuVkCacheFinishFile(file, written)
+    if staged.isErr() { let error = staged.unwrapErr(); staged.releaseContainer(); return gpuVkCacheDiscard(temporary, temporaryText, error) }
+    staged.releaseContainer()
+    let source = temporaryText.toCString(); let target = destination.asString().toCString()
+    // This is the last precommit check, after both fsync and consuming close.
+    let ready = gpuCheckOperation(operation, "gpu.vulkan.cache.commit")
+    if ready.isErr() {
+        let error = ready.unwrapErr(); ready.releaseContainer(); seen_cstr_free(source as *Void); seen_cstr_free(target as *Void)
+        return gpuVkCacheDiscard(temporary, temporaryText, error)
+    }
+    ready.releaseContainer()
+    let renamed = seen_fs_rename(temporaryText.length() as Int64, source as *const Char, destination.byteLength() as Int64, target as *const Char, 0 as Int32)
+    seen_cstr_free(source as *Void); seen_cstr_free(target as *Void)
+    if renamed != (0 as Int32) { return gpuVkCacheDiscard(temporary, temporaryText, gpuVkCacheFsFailure(fsFailure(renamed, "rename"), "gpu.vulkan.cache.commit")) }
+    gpuVkCachePathDrop(temporary); seen_string_release_owned(temporaryText)
+    let durable = gpuVkCacheSyncDirectory(destination, operation)
+    if durable.isErr() { durable.unwrapErr().progress = 1 as UInt64; return durable }; durable.releaseContainer()
+    let completed = gpuCheckOperation(operation, "gpu.vulkan.cache.commit")
+    if completed.isErr() { completed.unwrapErr().progress = 1 as UInt64 }
+    return completed
+}

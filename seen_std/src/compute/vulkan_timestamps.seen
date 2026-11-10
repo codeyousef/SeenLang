@@ -1,0 +1,192 @@
+/// Creator-confined, two-query Vulkan clock owner. Graphs record reset/start/end
+/// once; each reuse is bound to a newly admitted stream timeline sequence.
+import core.result.{Result, Ok, Err}
+import core.operation_context.{OperationContext}
+import compute.allocator.{GpuAllocator}
+import compute.backend.{GpuBackend}
+import compute.error.{GpuError, gpuFailure}
+import compute.operation.{gpuCheckOperation}
+import compute.vulkan_error.{gpuVkContextFailure}
+import compute.vulkan_stream.{GpuVulkanStream, GpuVulkanStreamCore}
+import compute.vulkan_pipeline_device.{GpuVulkanPipelineDevice}
+import compute.vulkan_abi.{gpuVkAllocate, gpuVkDrop, gpuVkU32, GPU_VK_QUEUE_BYTES, GPU_VK_MAX_QUEUE_FAMILIES}
+import compute.vulkan_native.{vkGetPhysicalDeviceQueueFamilyProperties}
+import memory.aligned_buffer.{OwnedBuffer}
+import memory.allocation.{allocationBudgetAvailable}
+
+@repr(C)
+class VulkanTimestampPoolInfo {
+    var sType: UInt32
+    var pNext: *Void
+    var flags: UInt32
+    var queryType: UInt32
+    var queryCount: UInt32
+    var pipelineStatistics: UInt32
+}
+extern "C" fun vkCreateQueryPool(device: UInt64, info: *const VulkanTimestampPoolInfo, allocator: *Void, pool: *UInt64) r: Int32
+extern "C" fun vkDestroyQueryPool(device: UInt64, pool: UInt64, allocator: *Void) r: Void
+extern "C" fun vkCmdResetQueryPool(command: UInt64, pool: UInt64, first: UInt32, count: UInt32) r: Void
+extern "C" fun vkCmdWriteTimestamp(command: UInt64, stage: UInt32, pool: UInt64, query: UInt32) r: Void
+extern "C" fun vkGetQueryPoolResults(device: UInt64, pool: UInt64, first: UInt32, count: UInt32, bytes: UInt64, data: *Void, stride: UInt64, flags: UInt32) r: Int32
+
+/// Exact modular subtraction, including 64-bit wrap without shift-by-64 or
+/// overflowing arithmetic. The native queue defines the significant low bits.
+fun gpuVkTimestampElapsed(start: UInt64, end: UInt64, validBits: Int) r: UInt64 {
+    if validBits < 1 or validBits > 64 { abort("timestamp width outside native range") }
+    var first = start; var last = end; var maximum = 18446744073709551615 as UInt64
+    if validBits < 64 { maximum = ((1 as UInt64) << (validBits as UInt32)) - (1 as UInt64); first = first & maximum; last = last & maximum }
+    if last >= first { return last - first }
+    return (maximum - first) + last + (1 as UInt64)
+}
+fun gpuVkTimestampNanoseconds(ticks: UInt64, period: Float) r: Float {
+    // Both casts are bounded below 2^32; never route a high-bit tick count
+    // through a signed Int or depend on unsigned-to-float lowering details.
+    let high = (ticks >> (32 as UInt32)) as Float
+    let low = (ticks & (4294967295 as UInt64)) as Float
+    return (high * 4294967296.0 + low) * period
+}
+@move
+class GpuVulkanTimestampSample {
+    var startTicks: UInt64
+    var endTicks: UInt64
+    var elapsedTicks: UInt64
+    var elapsedNanoseconds: Float
+    var ready: Bool
+    static fun empty() r: GpuVulkanTimestampSample {
+        return GpuVulkanTimestampSample{startTicks: 0 as UInt64, endTicks: 0 as UInt64, elapsedTicks: 0 as UInt64, elapsedNanoseconds: 0.0, ready: false}
+    }
+    fun release() r: Void { this.free() }
+}
+@move
+class GpuVulkanTimestampPool {
+    var core: GpuVulkanStreamCore
+    var pool: UInt64
+    var closed: Bool
+    var borrowers: Int
+    var scratch: OwnedBuffer<UInt8>
+    var period: Float
+    var validBits: Int
+    var queueFamily: UInt32
+    var sequence: UInt64
+    var pending: Bool
+
+    static fun open(borrow allocator: GpuAllocator, borrow stream: GpuVulkanStream, borrow physical: GpuVulkanPipelineDevice, operation: OperationContext) r: Result<GpuVulkanTimestampPool, GpuError> {
+        let checked = gpuCheckOperation(operation, "gpu.vulkan.timestamps.open")
+        if checked.isErr() { let error = checked.unwrapErr(); checked.releaseContainer(); return Err<GpuVulkanTimestampPool, GpuError>(error) }; checked.releaseContainer()
+        let core = stream.core
+        if allocator.core.closed or core.closed or not allocator.core.lease.valid() or not core.lease.valid() or allocator.core.lease.core != core.lease.core or allocator.core.lease.slot != core.lease.slot or allocator.core.lease.generation != core.lease.generation or not physical.matches(core.lease.core.info) or physical.nativePhysical == (0 as UInt64) or allocator.core.provider.queueFamily != physical.queueFamily or allocator.core.provider.value.contextIdentity() != core.device or allocator.core.provider.nativeQueue != core.queue {
+            return Err<GpuVulkanTimestampPool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.timestamps.open", "clock requires the same live physical device, allocator, queue family and stream context"))
+        }
+        if allocator.core.provider.value.backend() != GpuBackend.Vulkan { return Err<GpuVulkanTimestampPool, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.vulkan.timestamps.open", "native Vulkan clock required")) }
+        // VkPhysicalDeviceProperties2.properties.limits.timestampPeriod:
+        // SDK-oracle asserted 16 + 296 + 424. Validate the float representation
+        // before conversion: zero, negative, NaN and infinity are not clocks.
+        let periodWord = gpuVkU32(physical.metadata.buffers[0], 736 as UInt64)
+        if periodWord == (0 as UInt32) or (periodWord & (2147483648 as UInt32)) != (0 as UInt32) or (periodWord & (2139095040 as UInt32)) == (2139095040 as UInt32) {
+            return Err<GpuVulkanTimestampPool, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.vulkan.timestamps.open", "physical timestamp period is not finite and positive"))
+        }
+        if not allocationBudgetAvailable(32768) { return Err<GpuVulkanTimestampPool, GpuError>(gpuFailure("gpu.limit", "gpu.vulkan.timestamps.open", "clock metadata budget exhausted")) }
+        // One setup allocation serves bounded queue metadata capture and then
+        // remains the result scratch for the entire pool lifetime.
+        let allocated = gpuVkAllocate((GPU_VK_MAX_QUEUE_FAMILIES as UInt64) * GPU_VK_QUEUE_BYTES)
+        if allocated.isErr() { let error = allocated.unwrapErr(); allocated.releaseContainer(); return Err<GpuVulkanTimestampPool, GpuError>(error) }
+        let scratch = allocated.unwrap(); allocated.releaseContainer(); var count = 0 as UInt32
+        vkGetPhysicalDeviceQueueFamilyProperties(physical.nativePhysical, &count, null as *UInt8)
+        if count == (0 as UInt32) or count > GPU_VK_MAX_QUEUE_FAMILIES or physical.queueFamily >= count {
+            gpuVkDrop(scratch); return Err<GpuVulkanTimestampPool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.timestamps.open", "physical queue family metadata is outside its bound"))
+        }
+        var written = count; vkGetPhysicalDeviceQueueFamilyProperties(physical.nativePhysical, &written, scratch.data)
+        if written > count or physical.queueFamily >= written { gpuVkDrop(scratch); return Err<GpuVulkanTimestampPool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.timestamps.open", "selected native queue family disappeared")) }
+        let offset = (physical.queueFamily as UInt64) * GPU_VK_QUEUE_BYTES
+        let bits = gpuVkU32(scratch, offset + (8 as UInt64)) as Int
+        if (gpuVkU32(scratch, offset) & (2 as UInt32)) == (0 as UInt32) or gpuVkU32(scratch, offset + (4 as UInt64)) == (0 as UInt32) { gpuVkDrop(scratch); return Err<GpuVulkanTimestampPool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.timestamps.open", "selected native queue cannot compute")) }
+        if bits < 1 or bits > 64 { gpuVkDrop(scratch); return Err<GpuVulkanTimestampPool, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.vulkan.timestamps.open", "selected native queue has no supported timestamp width")) }
+        let retained = core.retain(operation)
+        if retained.isErr() { let error = retained.unwrapErr(); retained.releaseContainer(); gpuVkDrop(scratch); return Err<GpuVulkanTimestampPool, GpuError>(error) }; retained.releaseContainer()
+        let periods = physical.metadata.buffers[0].data as *Float32
+        let owner = GpuVulkanTimestampPool{core: core, pool: 0 as UInt64, closed: false, borrowers: 0, scratch: scratch, period: periods[184] as Float, validBits: bits, queueFamily: physical.queueFamily, sequence: 0 as UInt64, pending: false}
+        let info = VulkanTimestampPoolInfo{sType: 11 as UInt32, pNext: null as *Void, flags: 0 as UInt32, queryType: 2 as UInt32, queryCount: 2 as UInt32, pipelineStatistics: 0 as UInt32}
+        var native = 0 as UInt64
+        let created = vkCreateQueryPool(core.device, (&info) as *const VulkanTimestampPoolInfo, null as *Void, &native)
+        // Even an error accompanied by a native output has one release owner.
+        owner.pool = native
+        if created != (0 as Int32) { let error = gpuVkContextFailure(core.lease, created, "gpu.vulkan.timestamps.open"); let closed = owner.release(); closed.releaseContainer(); return Err<GpuVulkanTimestampPool, GpuError>(error) }
+        if native == (0 as UInt64) { let closed = owner.release(); closed.releaseContainer(); return Err<GpuVulkanTimestampPool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.timestamps.open", "native clock pool identity is empty")) }
+        return Ok<GpuVulkanTimestampPool, GpuError>(owner)
+    }
+    fun retainGraph(operation: OperationContext) r: Result<Bool, GpuError> {
+        let checked = gpuCheckOperation(operation, "gpu.vulkan.timestamps.borrow")
+        if checked.isErr() { return checked }; checked.releaseContainer()
+        if this.closed or not this.core.lease.valid() or this.core.closed or this.pool == (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.timestamps.borrow", "clock owner is closed or stale")) }
+        let ready = this.core.lease.admission("gpu.vulkan.timestamps.borrow")
+        if ready.isErr() { return ready }; ready.releaseContainer()
+        if this.core.poisoned { return Err<Bool, GpuError>(gpuFailure("gpu.unavailable", "gpu.vulkan.timestamps.borrow", "clock submission is uncertain")) }
+        if this.validBits < 1 or this.validBits > 64 or not (this.period > 0.0) or this.period - this.period != 0.0 { return Err<Bool, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.vulkan.timestamps.borrow", "clock width or period is unsupported")) }
+        if this.borrowers != 0 or this.pending { return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.vulkan.timestamps.borrow", "clock is already retained or pending")) }
+        this.borrowers = 1; return Ok<Bool, GpuError>(true)
+    }
+    fun dropGraph() r: Void {
+        if this.closed or this.borrowers != 1 or this.pending { abort("timestamp graph borrow released before native retirement") }
+        this.borrowers = 0
+    }
+    fun recording(command: UInt64) r: Void {
+        if this.closed or this.borrowers != 1 or this.pending or command == (0 as UInt64) or this.core.closed or not this.core.lease.ready() or this.core.poisoned or this.core.lost { abort("timestamp command recording outside retained ready state") }
+    }
+    fun recordReset(command: UInt64) r: Void { this.recording(command); vkCmdResetQueryPool(command, this.pool, 0 as UInt32, 2 as UInt32) }
+    fun recordStart(command: UInt64) r: Void { this.recording(command); vkCmdWriteTimestamp(command, 1 as UInt32, this.pool, 0 as UInt32) }
+    fun recordEnd(command: UInt64) r: Void { this.recording(command); vkCmdWriteTimestamp(command, 8192 as UInt32, this.pool, 1 as UInt32) }
+    fun markSubmitted(sequence: UInt64) r: Void {
+        if this.closed or this.borrowers != 1 or this.pending or sequence == (0 as UInt64) or sequence <= this.sequence or sequence != this.core.lastSubmitted { abort("timestamp submission is not a new retained stream signal") }
+        this.sequence = sequence; this.pending = true
+    }
+    fun poll(borrow sample: GpuVulkanTimestampSample) r: Result<Bool, GpuError> {
+        if this.closed or this.core.closed or not this.core.lease.valid() or this.sequence == (0 as UInt64) { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.timestamps.poll", "clock has no live submitted sample")) }
+        let observed = this.core.poll(this.sequence)
+        if observed.isErr() {
+            let error = observed.unwrapErr(); observed.releaseContainer(); error.progress = this.sequence
+            if error.code == "gpu.device_lost" {
+                // A later stream slot may still be retained. Only this
+                // pool's signal determines whether its own queries are in use.
+                var active = false; var index = 0
+                while index < this.core.slots.length() {
+                    let slot = this.core.slots[index]
+                    if slot.pending and slot.sequence == this.sequence { active = true }
+                    index = index + 1
+                }
+                if not active { this.pending = false }
+            }
+            return Err<Bool, GpuError>(error)
+        }
+        let retired = observed.unwrap(); observed.releaseContainer()
+        if not retired { return Ok<Bool, GpuError>(false) }
+        this.pending = false
+        let words = this.scratch.data as *UInt64
+        words[0] = 0 as UInt64; words[1] = 0 as UInt64; words[2] = 0 as UInt64; words[3] = 0 as UInt64
+        // Two {uint64 result,uint64 availability} records; no WAIT or PARTIAL.
+        let queried = vkGetQueryPoolResults(this.core.device, this.pool, 0 as UInt32, 2 as UInt32, 32 as UInt64, this.scratch.data as *Void, 16 as UInt64, 5 as UInt32)
+        if queried == (1 as Int32) { return Ok<Bool, GpuError>(false) }
+        if queried != (0 as Int32) {
+            if queried == (-4 as Int32) { this.core.lost = true; this.core.poisoned = true }
+            let error = gpuVkContextFailure(this.core.lease, queried, "gpu.vulkan.timestamps.poll"); error.progress = this.sequence; return Err<Bool, GpuError>(error)
+        }
+        if words[1] == (0 as UInt64) or words[3] == (0 as UInt64) { return Ok<Bool, GpuError>(false) }
+        var mask = 18446744073709551615 as UInt64
+        if this.validBits < 64 { mask = ((1 as UInt64) << (this.validBits as UInt32)) - (1 as UInt64) }
+        let first = words[0] & mask; let last = words[2] & mask
+        let elapsed = gpuVkTimestampElapsed(first, last, this.validBits)
+        sample.startTicks = first; sample.endTicks = last; sample.elapsedTicks = elapsed
+        sample.elapsedNanoseconds = gpuVkTimestampNanoseconds(elapsed, this.period); sample.ready = true
+        return Ok<Bool, GpuError>(true)
+    }
+    fun close() r: Result<Bool, GpuError> {
+        if this.closed { return Ok<Bool, GpuError>(false) }
+        if this.borrowers != 0 or this.pending { return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.vulkan.timestamps.close", "clock graph borrower or native work remains")) }
+        if this.pool != (0 as UInt64) { vkDestroyQueryPool(this.core.device, this.pool, null as *Void); this.pool = 0 as UInt64 }
+        gpuVkDrop(this.scratch); this.core.dropBorrow(); this.closed = true
+        return Ok<Bool, GpuError>(true)
+    }
+    fun release() r: Result<Bool, GpuError> {
+        let closed = this.close(); if closed.isErr() { return closed }; closed.releaseContainer()
+        this.free(); return Ok<Bool, GpuError>(true)
+    }
+}

@@ -1,0 +1,22 @@
+import support.{Sample, makeSample}
+
+fun validateSample() r: Int {
+    let sample = makeSample()
+    if sample.title.length() != 4 or sample.values.length() != 1 {
+        return 1
+    }
+    if sample.values[0].length() != 5 {
+        return 2
+    }
+    sample.values.push("second")
+    if sample.values.length().toString() != "2" {
+        return 3
+    }
+    sample.values.free()
+    sample.free()
+    return 0
+}
+
+fun main() r: Int {
+    return validateSample()
+}

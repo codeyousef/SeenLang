@@ -14,6 +14,7 @@ import codegen.ir_struct_field_resolution.{resolveKnownStructFieldImpl}
 import codegen.ir_path_expr.{splitFirstPathDotImpl, splitChainedPathImpl}
 import codegen.type_registry_core.{getFieldInfoReg, isClassTypeReg}
 import codegen.ir_string_collect.{extractStructFieldTypesImpl, getBaseTypeNameImpl}
+import codegen.ir_codegen_type_state.{mapTypeState}
 
 ///
 resolveFieldAccessLayoutImpl — resolve the LLVM layout string plus field index
@@ -117,8 +118,8 @@ fun emitResolvedFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
                 bitfieldWidth)
         }
     }
-    // Array/List expressions use native pointers. Seen raw pointers and class
-    // handles retain the i64 expression ABI, independently of field storage.
+    // Native-pointer expressions keep ptr values; typed *T addresses and class
+    // handles retain their i64 expression ABI, independently of field storage.
     if pointerStorageToWord {
         let word = getNextRegFn(regBox)
         output.append("  " + word + " = ptrtoint ptr " + resultReg + " to i64\n")
@@ -228,7 +229,7 @@ fun emitDirectFieldAccessLoadImpl(output: StringBuilder, regBox: Array<Int>,
             let resultReg = getNextRegFn(regBox)
             output.append("  " + resultReg + " = extractvalue %" + structType +
                 " " + ptrReg + ", " + fieldIdx.toString() + "\n")
-            if llvmFieldType == "ptr" {
+            if llvmFieldType == "ptr" and not pointerValue {
                 let handleReg = getNextRegFn(regBox)
                 output.append("  " + handleReg + " = ptrtoint ptr " +
                     resultReg + " to i64 ; repr(C) pointer field\n")
@@ -406,19 +407,36 @@ fun generateFieldAccessImpl(output: StringBuilder, regBox: Array<Int>,
     bitfieldCount: Int, bitfieldKeys: String, bitfieldWidths: String)
     r: String {
 
+    // Generic/qualified spellings share the registered repr(C) LLVM identity.
+    // Do not reinterpret the first pointer field as a heap-class handle.
+    var actualType = structType
+    let baseType = getBaseTypeNameImpl(structType)
+    if not structType.endsWith("?") and not structType.startsWith("*") and
+        reprCClassNames != "" and reprCClassNames.contains(baseType + "|") {
+        actualType = baseType
+    }
     let chainedResult = tryEmitChainedFieldAccessImpl(output, regBox, ptrReg,
-        structType, fieldName, structNames, structLayouts, structFieldNames,
+        actualType, fieldName, structNames, structLayouts, structFieldNames,
         structFieldTypes, reprCClassNames, unionTypes, typeAliasNames,
         typeAliasTargets, typeAliasCount, enumTypeNames, bitfieldCount,
         bitfieldKeys, bitfieldWidths)
     if chainedResult != "" {
         return chainedResult
     }
-    return emitDirectFieldAccessLoadImpl(output, regBox, ptrReg, structType,
-        fieldName, llvmFieldType, structNames, structLayouts,
+    var actualFieldType = llvmFieldType
+    // Typed *T addresses have an i64 expression ABI, but extractvalue must use
+    // their pointer storage before conversion. Opaque Ptr and Array/List
+    // expressions instead retain the native-pointer ABI selected below.
+    if reprCClassNames != "" and reprCClassNames.contains(actualType + "|") {
+        let declaredFieldType = getSeenFieldTypeImpl(structType, fieldName,
+            structNames, structFieldNames, structFieldTypes)
+        if declaredFieldType.startsWith("*") { actualFieldType = "ptr" }
+    }
+    return emitDirectFieldAccessLoadImpl(output, regBox, ptrReg, actualType,
+        fieldName, actualFieldType, structNames, structLayouts,
         structFieldNames, reprCClassNames, unionTypes, bitfieldCount,
         bitfieldKeys, bitfieldWidths,
-        isNativePointerFieldValueImpl(structType, fieldName, structNames,
+        isNativePointerFieldValueImpl(actualType, fieldName, structNames,
             structFieldNames, structFieldTypes))
 }
 
@@ -432,8 +450,7 @@ fun isNativePointerFieldValueImpl(structType: String, fieldName: String,
 }
 
 fun isNativePointerFieldTypeImpl(fieldType: String) r: Bool {
-    return fieldType.startsWith("Array<") or fieldType == "Array" or
-        fieldType.startsWith("List<") or fieldType == "List"
+    return mapTypeState(fieldType) == "ptr"
 }
 
 fun generateFieldAccessPtrImpl(output: StringBuilder, regBox: Array<Int>,

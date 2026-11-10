@@ -1,0 +1,7 @@
+import compute.allocator.{GpuAllocator}
+import async.queue.{AsyncQueue}
+import async.executor_core.{ExecutorCore}
+fun invalid(core: ExecutorCore) r: Void {
+    let queue = AsyncQueue<GpuAllocator>.create(core, 1)
+}
+fun main() r: Int { return 0 }

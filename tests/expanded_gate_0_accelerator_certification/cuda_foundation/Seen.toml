@@ -1,0 +1,11 @@
+manifest-version = 1
+
+[project]
+name = "cuda_foundation_canary"
+version = "0.23.0"
+language = "en"
+modules = ["src/main.seen"]
+
+# Native Driver API only; never the toolkit runtime or SDK stub directory.
+[native.dependencies]
+cuda = {}

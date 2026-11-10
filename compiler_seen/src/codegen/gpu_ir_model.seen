@@ -1,0 +1,135 @@
+/// Owned, backend-independent structured GPU IR. Registers and local slots are
+/// function-local numeric identities; instructions never retain parsed ASTs.
+/// Every backend must verify a module immediately before consuming it.
+import json.builder.{seen_string_clone_owned, seen_string_release_owned}
+import core.result.{Result, Ok, Err}
+
+@move
+class GpuIrInstruction {
+    var opcode: Int
+    var result: Int
+    var typeCode: Int
+    var operands: Array<Int>
+    var immediate: Int
+    var leftBlock: Int
+    var rightBlock: Int
+    var text: String
+    var textOwned: Bool
+    var memoryScope: Int
+    var memoryOrder: Int
+    var memorySpaces: Int
+    var line: Int
+    var column: Int
+    static fun create(opcode: Int, result: Int, typeCode: Int) r: GpuIrInstruction {
+        return GpuIrInstruction{opcode: opcode, result: result, typeCode: typeCode, operands: Array<Int>(),
+            immediate: 0, leftBlock: -1, rightBlock: -1, text: "", textOwned: false,
+            memoryScope: 0, memoryOrder: 0, memorySpaces: 0, line: 0, column: 0}
+    }
+    fun setText(text: String) r: Bool {
+        if text.length() > 256 { return false }
+        let copied = seen_string_clone_owned(text)
+        if this.textOwned { seen_string_release_owned(this.text) }
+        this.text = copied; this.textOwned = true; return true
+    }
+    fun release() r: Void {
+        this.operands.free()
+        if this.textOwned { seen_string_release_owned(this.text) }
+        this.free()
+    }
+}
+@move
+class GpuIrBlock {
+    var parent: Int
+    var parentInstruction: Int
+    var instructions: Array<GpuIrInstruction>
+    static fun create(parent: Int, parentInstruction: Int) r: GpuIrBlock {
+        return GpuIrBlock{parent: parent, parentInstruction: parentInstruction, instructions: Array<GpuIrInstruction>()}
+    }
+    fun release() r: Void {
+        var i = 0
+        while i < this.instructions.length() { this.instructions[i].release(); i = i + 1 }
+        this.instructions.free(); this.free()
+    }
+}
+@move
+class GpuIrFunction {
+    var name: String
+    var kernel: Bool
+    var returnType: Int
+    var parameterTypes: Array<Int>
+    var blocks: Array<GpuIrBlock>
+    var workgroupX: Int
+    var workgroupY: Int
+    var workgroupZ: Int
+    var registerCount: Int
+    var localCount: Int
+    var line: Int
+    static fun create(name: String, kernel: Bool, returnType: Int) r: Result<GpuIrFunction, GpuIrDiagnostic> {
+        if name.length() == 0 or name.length() > 256 {
+            return Err<GpuIrFunction, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_IR_LIMIT", "GPU function name exceeds its byte ceiling"))
+        }
+        return Ok<GpuIrFunction, GpuIrDiagnostic>(GpuIrFunction{name: seen_string_clone_owned(name), kernel: kernel, returnType: returnType,
+            parameterTypes: Array<Int>(), blocks: Array<GpuIrBlock>(), workgroupX: 1, workgroupY: 1,
+            workgroupZ: 1, registerCount: 0, localCount: 0, line: 0})
+    }
+    fun release() r: Void {
+        var i = 0
+        while i < this.blocks.length() { this.blocks[i].release(); i = i + 1 }
+        this.blocks.free(); this.parameterTypes.free(); seen_string_release_owned(this.name); this.free()
+    }
+}
+@move
+class GpuIrModule {
+    var name: String
+    var functions: Array<GpuIrFunction>
+    var requiredCapabilities: UInt64
+    var sharedBytes: UInt64
+    var requiresFaultBuffer: Bool
+    static fun create(name: String) r: Result<GpuIrModule, GpuIrDiagnostic> {
+        if name.length() == 0 or name.length() > 1024 {
+            return Err<GpuIrModule, GpuIrDiagnostic>(gpuIrDiagnostic("E_GPU_IR_LIMIT", "GPU module identity exceeds its byte ceiling"))
+        }
+        return Ok<GpuIrModule, GpuIrDiagnostic>(GpuIrModule{name: seen_string_clone_owned(name), functions: Array<GpuIrFunction>(),
+            requiredCapabilities: 0 as UInt64, sharedBytes: 0 as UInt64, requiresFaultBuffer: false})
+    }
+    fun release() r: Void {
+        var i = 0
+        while i < this.functions.length() { this.functions[i].release(); i = i + 1 }
+        this.functions.free(); seen_string_release_owned(this.name); this.free()
+    }
+}
+class GpuIrDiagnostic {
+    var code: String
+    var message: String
+    var functionIndex: Int
+    var blockIndex: Int
+    var instructionIndex: Int
+    var line: Int
+    var column: Int
+}
+fun gpuIrDiagnostic(code: String, message: String) r: GpuIrDiagnostic {
+    return GpuIrDiagnostic{code: code, message: message, functionIndex: -1, blockIndex: -1, instructionIndex: -1, line: 0, column: 0}
+}
+class GpuIrValidation {
+    var valid: Bool
+    var diagnostics: Array<GpuIrDiagnostic>
+    var capabilities: UInt64
+    static fun create() r: GpuIrValidation {
+        return GpuIrValidation{valid: true, diagnostics: Array<GpuIrDiagnostic>(), capabilities: 0 as UInt64}
+    }
+    fun reject(code: String, message: String, functionIndex: Int, blockIndex: Int, instructionIndex: Int) r: Void {
+        this.valid = false
+        if this.diagnostics.length() < 64 {
+            this.diagnostics.push(GpuIrDiagnostic{code: code, message: message, functionIndex: functionIndex,
+                blockIndex: blockIndex, instructionIndex: instructionIndex, line: 0, column: 0})
+        }
+    }
+    fun release() r: Void {
+        var i = 0
+        while i < this.diagnostics.length() {
+            let diagnostic: GpuIrDiagnostic = this.diagnostics[i]
+            diagnostic.free(); i = i + 1
+        }
+        this.diagnostics.free(); this.free()
+    }
+}

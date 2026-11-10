@@ -5,6 +5,7 @@ Extracted from llvm_ir_gen.seen to deduplicate single- and multi-module paths.
 
 import parser.real_parser.{ProgramNode, FunctionNode}
 import str.string.{StringBuilder}
+import codegen.ir_method_receiver.{getDeclaredFunctionNameImpl}
 import codegen.ir_optimization.{parseGlobalVarMutable, parseGlobalVarType, parseGlobalVarValue, pipeGet}
 import codegen.ir_decl_late_declares.{moduleBuilderAlreadyDeclaresFunctionCoreImpl}
 import codegen.ir_string_collect.{hexToDecimalImpl}
@@ -376,13 +377,13 @@ fun emitTraitVtableConstantsImpl(output: StringBuilder, traitImplRegistry: Strin
     }
 }
 
-fun collectProgramDefinedSymbolsImpl(program: ProgramNode) r: Array<String> {
+fun collectProgramDefinedSymbolsImpl(program: ProgramNode, structNames: Array<String>) r: Array<String> {
     let definedSymbols = Array<String>()
     var collectIdx = 0
     while collectIdx < program.items.length() {
         let collectItem = program.items[collectIdx]
         if collectItem.itemType == "Function" {
-            let fnName = collectItem.function.name
+            let fnName = getDeclaredFunctionNameImpl(collectItem.function, structNames)
             if not isRuntimeBackedStringCompatFunctionImpl(fnName) {
                 definedSymbols.push(fnName)
             }

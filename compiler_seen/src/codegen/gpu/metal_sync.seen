@@ -1,0 +1,30 @@
+/// Memory fences retain declared memory spaces and scope. Execution barriers
+/// rendezvous only within their source subgroup or workgroup.
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu_ir_ops.{GPU_IR_BARRIER, GPU_ORDER_SEQ_CST, GPU_SCOPE_SUBGROUP, GPU_SCOPE_WORKGROUP}
+import codegen.gpu.metal_context.{GpuMetalFunction}
+import codegen.gpu.metal_sync_plan.{metalFenceOrderName, metalScopeName, metalMemoryFlags}
+
+fun metalMemoryFence(function: GpuMetalFunction, scope: Int, order: Int, spaces: Int) r: Void {
+    let ordering = metalFenceOrderName(order); let scopeName = metalScopeName(scope); let flags = metalMemoryFlags(spaces)
+    if function.target != "macos15" or ordering == "" or scopeName == "" or flags == "" {
+        function.error("E_GPU_METAL_CAPABILITY", "Metal memory fences require MSL 3.2 and a supported scope and order"); return
+    }
+    function.body.literal("atomic_thread_fence("); function.body.literal(flags); function.body.literal(", ")
+    function.body.literal(ordering); function.body.literal(", "); function.body.literal(scopeName); function.body.literal(");\n")
+}
+fun metalSynchronization(function: GpuMetalFunction, borrow op: GpuIrInstruction) r: Void {
+    if op.opcode != GPU_IR_BARRIER { metalMemoryFence(function, op.memoryScope, op.memoryOrder, op.memorySpaces); return }
+    let flags = metalMemoryFlags(op.memorySpaces)
+    if (op.memoryScope != GPU_SCOPE_SUBGROUP and op.memoryScope != GPU_SCOPE_WORKGROUP) or flags == "" {
+        function.error("E_GPU_METAL_CAPABILITY", "Metal execution barriers require subgroup or workgroup scope"); return
+    }
+    if op.memoryOrder == GPU_ORDER_SEQ_CST {
+        metalMemoryFence(function, op.memoryScope, op.memoryOrder, op.memorySpaces)
+        if not function.validation.valid { return }
+    }
+    if op.memoryScope == GPU_SCOPE_SUBGROUP { function.body.literal("simdgroup_barrier(") }
+    else { function.body.literal("threadgroup_barrier(") }
+    function.body.literal(flags); function.body.literal(");\n")
+    if op.memoryOrder == GPU_ORDER_SEQ_CST { metalMemoryFence(function, op.memoryScope, op.memoryOrder, op.memorySpaces) }
+}

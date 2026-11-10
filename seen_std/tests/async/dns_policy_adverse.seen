@@ -1,0 +1,106 @@
+import stress_fixture_support.{must, context, errorHasProgress}
+import dns_fixture_support.{dnsFixtureAnswer}
+import async.structured.{AsyncError}
+import async.executor_core.{executorReleaseContext}
+import async.dns.{AsyncDnsResolver, seen_async_datagram_open, seen_async_datagram_receive}
+import async.sockets.{SocketAddress, seen_async_socket_bound_port, seen_async_socket_connect, seen_async_socket_write}
+import reactor.reactor.{OwnedHandle}
+import memory.aligned_buffer.{OwnedBuffer}
+import core.result.{Result}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+
+fun expectError<T>(value: Result<T, AsyncError>, code: String) r: Void {
+    if not errorHasProgress<T>(value, code, 0 as UInt64) { abort("DNS policy error mismatch") }
+}
+fun receive(handle: Int64, buffer: OwnedBuffer<UInt8>) r: UInt64 {
+    var attempt = 0
+    while attempt < 10000 {
+        var count = 0 as UInt64
+        let status = seen_async_datagram_receive(handle, buffer.data as *Void, buffer.byteLength, &count)
+        if status == (0 as Int32) { return count }
+        if status != (8 as Int32) { abort("loopback DNS receive failed") }
+        attempt = attempt + 1
+    }
+    abort("loopback DNS datagram did not become ready")
+}
+fun main() r: Int {
+    let memory = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics()
+    let bytes = [127, 0, 0, 1]; let address = must(SocketAddress.fromBytes(bytes, 9)); bytes.free()
+    // Opening a connected UDP endpoint assigns an ephemeral local port. No data
+    // is sent to port 9: reconnect it to the query's ephemeral port before I/O.
+    // Both endpoints use the existing ledgered socket ABI; all DNS policy and
+    // response generation stay in Seen.
+    var serverNative = -1 as Int64
+    if seen_async_datagram_open(address.packed.data, address.packed.byteLength, address.port, &serverNative) != (0 as Int32) {
+        abort("loopback DNS socket construction failed")
+    }
+    let server = OwnedHandle{native: serverNative, valid: true, owned: true}
+    var port = 0 as UInt16
+    if seen_async_socket_bound_port(serverNative, &port) != (0 as Int32) { abort("DNS server port unavailable") }
+    address.port = port
+    expectError(AsyncDnsResolver.create(address, 0, 4, 512), "async.limit")
+    expectError(AsyncDnsResolver.create(address, 1025, 4, 512), "async.limit")
+    expectError(AsyncDnsResolver.create(address, 1, 0, 512), "async.limit")
+    expectError(AsyncDnsResolver.create(address, 1, 129, 512), "async.limit")
+    expectError(AsyncDnsResolver.create(address, 1, 4, 511), "async.limit")
+    expectError(AsyncDnsResolver.create(address, 1, 4, 4097), "async.limit")
+    address.port = 0; expectError(AsyncDnsResolver.create(address, 1, 4, 512), "async.invalid")
+    address.port = port
+    let resolver = must(AsyncDnsResolver.create(address, 1, 4, 512))
+    let ctx = context(); let cancelled = context(); cancelled.operation.cancellation = true
+    let expired = context(); expired.operation.monotonicDeadline = 0 as Int64
+    expectError(resolver.start("example.test", 1, cancelled), "async.cancelled")
+    expectError(resolver.start("example.test", 1, expired), "async.timeout")
+    expectError(resolver.start("bad..name", 1, ctx), "async.invalid")
+    let query = must(resolver.start("example.test", 1, ctx))
+    expectError(resolver.start("example.test", 1, ctx), "async.limit")
+    expectError(resolver.release(), "async.unavailable")
+    let notification = must(query.notificationLease())
+    expectError(query.notificationLease(), "async.limit")
+    expectError(query.close(), "async.unavailable"); notification.release()
+    var clientPort = 0 as UInt16
+    if seen_async_socket_bound_port(query.descriptor.native, &clientPort) != (0 as Int32) or
+        seen_async_socket_connect(serverNative, address.packed.data, address.packed.byteLength, clientPort) != (0 as Int32) {
+        abort("loopback DNS peer binding failed")
+    }
+    // Caller mutation must not cancel the query's owned snapshot.
+    ctx.operation.cancellation = true
+    expectError(query.step(), "async.unavailable")
+    if not query.sent or query.finished { abort("DNS unavailable did not retain retry state") }
+    let packet = must(OwnedBuffer<UInt8>.allocate(512 as UInt64, 1 as UInt64, 16 as UInt64))
+    let received = receive(serverNative, packet)
+    if received != (query.question.wire.length as UInt64) { abort("DNS query datagram length mismatch") }
+    var index = 0
+    while index < (received as Int) {
+        if (packet.data[index] as Int) != query.question.wire.byte(index) { abort("DNS query wire mismatch") }
+        index = index + 1
+    }
+    let answer = dnsFixtureAnswer(query.question); var written = 0 as UInt64
+    if seen_async_socket_write(serverNative, answer.storage.data as *Void, answer.length as UInt64, &written) != (0 as Int32) or
+        written != (answer.length as UInt64) { abort("DNS answer datagram write failed") }
+    let response = must(query.step())
+    if response.addresses.length() != 1 or response.addresses[0].bytes[0] != 127 or
+        response.addresses[0].ttl != (60 as UInt64) { abort("DNS loopback answer mismatch") }
+    response.release(); answer.release(); packet.close(); packet.free()
+    expectError(query.step(), "async.invalid"); expectError(query.notificationLease(), "async.invalid")
+    must(query.close()); must(query.close()); must(query.release())
+    ctx.operation.cancellation = false
+    let cancelledQuery = must(resolver.start("example.test", 1, ctx))
+    cancelledQuery.context.operation.cancellation = true
+    expectError(cancelledQuery.step(), "async.cancelled")
+    if not cancelledQuery.finished { abort("cancelled DNS query retained live state") }
+    must(cancelledQuery.release())
+    let expiredQuery = must(resolver.start("example.test", 1, ctx))
+    expiredQuery.context.operation.monotonicDeadline = 0 as Int64
+    expectError(expiredQuery.step(), "async.timeout"); must(expiredQuery.release())
+    let closed = must(resolver.start("example.test", 1, ctx)); must(closed.close())
+    expectError(closed.step(), "async.invalid"); expectError(closed.notificationLease(), "async.invalid")
+    must(closed.release()); must(resolver.release()); must(server.close()); server.free(); address.release()
+    executorReleaseContext(ctx); executorReleaseContext(cancelled); executorReleaseContext(expired)
+    if seen_memory_used_bytes() != memory or seen_sync_live_atomics() != atomics {
+        abort("DNS policy paths leaked allocations or leases")
+    }
+    println("PASS: DNS loopback UDP, snapshots, quotas, cancellation and cleanup")
+    return 0
+}

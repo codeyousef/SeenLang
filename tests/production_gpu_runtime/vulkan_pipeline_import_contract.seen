@@ -1,0 +1,8 @@
+import compute.vulkan_pipeline.{GpuVulkanPipeline}
+import compute.vulkan_pipeline_dispatch.{GpuVulkanDispatch}
+import compute.vulkan_pipeline_artifact.{GpuVulkanArtifact}
+import compute.vulkan_pipeline_cache.{gpuVkLoadPipelineCache}
+fun main() r: Int {
+    println("PASS: unused native Vulkan pipeline imports preserve CPU-only execution")
+    return 0
+}

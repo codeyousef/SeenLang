@@ -32,10 +32,10 @@ fun main() r: Int {
         "seen_std.src.reactor.reactor::BlockingCompletion")
     let gather = sendShareFoundationContract(
         "seen_std.src.io.direct::GatherCompletion")
-    sendShareExpect(blocking.send == 1 and blocking.share == 0 and
-        blocking.requiresMove and gather.send == 1 and gather.share == 0 and
+    sendShareExpect(blocking.send == -1 and blocking.share == -1 and
+        gather.send == 1 and gather.share == 0 and
         gather.requiresMove,
-        "mutable completion records are Send-by-move and not Share")
+        "current completion is Send-by-move; removed completion identity stays unproved")
 
     let spoofedArc = sendShareFoundationContract("Arc<Int>")
     let namespacedSpoof = sendShareFoundationContract(

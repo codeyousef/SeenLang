@@ -1,0 +1,159 @@
+import compute.allocator.{GpuAllocator}
+import compute.buffer.{GpuBuffer}
+import compute.resource_arena_core.{GPU_RESOURCE_MAX_GENERATION}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.error.{GpuError}
+import compute.resource_stats.{GpuStats}
+import core.result.{Result}
+import resource_fixture_support.{resourceWorld, resourceProvider, resourceOpened}
+import resource_assertions.{allocated, rejected}
+import provider_fixture_support.{completed}
+import device_fixture_support.{gpuFixtureRejected}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_memory_reserved_bytes() r: Int64
+extern "C" fun seen_memory_limit_bytes() r: Int64
+extern "C" fun seen_memory_set_limit_bytes(bytes: Int64) r: Void
+
+fun rejectedStats(result: Result<GpuStats, GpuError>) r: Void {
+    if result.isOkay() { abort("unknown GPU accounting published as exact statistics") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != "gpu.invalid" { abort("unavailable exact GPU accounting diagnostic changed") }
+    error.release()
+}
+fun rejectedAllocator(result: Result<GpuAllocator, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("invalid GPU allocator policy admitted") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code or error.retryable { abort("GPU allocator policy diagnostic changed") }
+    error.release()
+}
+fun construction() r: Void {
+    let world = resourceWorld(512 as UInt64, 32, 2)
+    rejectedAllocator(GpuAllocator.create(world.context, GpuMemoryKind.DeviceLocal, 64 as UInt64, 2, world.operation), "gpu.unsupported_capability")
+    var index = 0
+    while index < 8 {
+        var bytes = 64 as UInt64; var blocks = 2; var code = "gpu.invalid"
+        if index == 0 { world.counts.providerId = 2 as UInt64 }
+        if index == 1 { world.counts.contextId = world.counts.contextId + (1 as UInt64) }
+        if index == 2 { world.counts.alignment = 0 as UInt64 }
+        if index == 3 { bytes = 65 as UInt64 }
+        if index == 4 { bytes = 0 as UInt64; code = "gpu.limit" }
+        if index == 5 { bytes = 513 as UInt64; code = "gpu.limit" }
+        if index == 6 { blocks = 0; code = "gpu.limit" }
+        if index == 7 { blocks = 33; code = "gpu.limit" }
+        rejectedAllocator(GpuAllocator.open(world.context, resourceProvider(world.counts, world.operation),
+            GpuMemoryKind.DeviceLocal, bytes, blocks, world.operation), code)
+        world.counts.providerId = 1 as UInt64; world.counts.contextId = world.context.core.slots[world.context.slot].native
+        world.counts.alignment = 16 as UInt64
+        if world.device.core.resourceBorrowers != 1 or world.counts.attempts != 0 { abort("allocator rejection retained a lease or called native allocation") }
+        index = index + 1
+    }
+    let prepared = resourceProvider(world.counts, world.operation); let previous = seen_memory_limit_bytes()
+    seen_memory_set_limit_bytes(seen_memory_used_bytes() + seen_memory_reserved_bytes() + (8191 as Int64))
+    let exhausted = GpuAllocator.open(world.context, prepared, GpuMemoryKind.DeviceLocal, 64 as UInt64, 2, world.operation)
+    seen_memory_set_limit_bytes(previous); rejectedAllocator(exhausted, "gpu.limit")
+    world.release()
+}
+fun admission() r: Void {
+    let world = resourceWorld(512 as UInt64, 32, 2)
+    world.operation.cancellation = true
+    rejected(GpuBuffer<UInt32>.allocate(world.allocator, 1 as UInt64, 4 as UInt64, 16 as UInt64, world.operation), "gpu.cancelled", 0)
+    world.operation.cancellation = false; world.operation.monotonicDeadline = 1 as Int64
+    rejected(GpuBuffer<UInt32>.allocate(world.allocator, 1 as UInt64, 4 as UInt64, 16 as UInt64, world.operation), "gpu.timeout", 0)
+    world.operation.monotonicDeadline = 9223372036854775807 as Int64
+    rejected(GpuBuffer<UInt32>.allocate(world.allocator, 0 as UInt64, 4 as UInt64, 16 as UInt64, world.operation), "gpu.invalid", 0)
+    rejected(GpuBuffer<UInt32>.allocate(world.allocator, 1 as UInt64, 4 as UInt64, 3 as UInt64, world.operation), "gpu.invalid", 0)
+    rejected(GpuBuffer<UInt32>.allocate(world.allocator, (1 as UInt64) << 63, 4 as UInt64, 16 as UInt64, world.operation), "gpu.limit", 0)
+    let previous = seen_memory_limit_bytes()
+    seen_memory_set_limit_bytes(seen_memory_used_bytes() + seen_memory_reserved_bytes() + (8192 as Int64))
+    let exhausted = GpuBuffer<UInt32>.allocate(world.allocator, 1 as UInt64, 4 as UInt64, 16 as UInt64, world.operation)
+    seen_memory_set_limit_bytes(previous); rejected(exhausted, "gpu.limit", 0)
+    if world.counts.attempts != 0 { abort("GPU invalid cancellation or metadata admission reached native allocation") }
+    world.allocator.core.lease.active = false
+    rejected(GpuBuffer<UInt32>.allocate(world.allocator, 1 as UInt64, 4 as UInt64, 16 as UInt64, world.operation), "gpu.invalid", 0)
+    world.allocator.core.lease.active = true; world.counts.failCreate = true
+    rejected(GpuBuffer<UInt32>.allocate(world.allocator, 1 as UInt64, 4 as UInt64, 16 as UInt64, world.operation), "gpu.out_of_memory", 0)
+    if world.counts.live != 0 or world.device.core.resourceCommittedBytes != (0 as UInt64) or world.device.core.resourceBorrowers != 1 {
+        abort("failed GPU native allocation retained budget or a temporary borrower")
+    }
+    world.counts.failCreate = false
+    let buffer = allocated(GpuBuffer<UInt32>.allocate(world.allocator, 1 as UInt64, 4 as UInt64, 16 as UInt64, world.operation))
+    completed(buffer.release(), true); world.release()
+    let quota = resourceWorld(512 as UInt64, 2, 1)
+    rejected(GpuBuffer<UInt32>.allocate(quota.allocator, 1 as UInt64, 4 as UInt64, 16 as UInt64, quota.operation), "gpu.limit", 0)
+    if quota.counts.attempts != 0 or quota.device.core.resourceBorrowers != 1 { abort("resource owner quota was checked after native allocation") }
+    quota.release()
+}
+fun cleanup() r: Void {
+    let late = resourceWorld(512 as UInt64, 32, 2)
+    late.counts.late = true; late.counts.failDestroy = 1
+    rejected(GpuBuffer<UInt32>.allocate(late.allocator, 1 as UInt64, 4 as UInt64, 16 as UInt64, late.operation), "gpu.timeout", 1)
+    if late.counts.live != 1 or late.device.core.resourceCommittedBytes != (80 as UInt64) or late.allocator.core.liveBuffers != 0 {
+        abort("late GPU result lost its retained native owner or commitment")
+    }
+    late.operation.monotonicDeadline = 9223372036854775807 as Int64; late.counts.late = false
+    let reused = allocated(GpuBuffer<UInt32>.allocate(late.allocator, 1 as UInt64, 4 as UInt64, 16 as UInt64, late.operation))
+    if late.counts.creates != 1 { abort("explicit retry rebuilt an already-retained native block") }
+    completed(reused.release(), true); late.counts.refuseDestroy = true
+    gpuFixtureRejected(late.allocator.release(), "gpu.invalid")
+    if late.counts.live != 1 { abort("refused GPU destruction detached native ownership") }
+    late.counts.refuseDestroy = false; late.release()
+
+    let invalid = resourceWorld(512 as UInt64, 32, 2)
+    invalid.counts.badMetadata = true; invalid.counts.failDestroy = 1
+    rejected(GpuBuffer<UInt32>.allocate(invalid.allocator, 1 as UInt64, 4 as UInt64, 16 as UInt64, invalid.operation), "gpu.invalid", 1)
+    rejectedStats(invalid.allocator.stats())
+    rejected(GpuBuffer<UInt32>.allocate(invalid.allocator, 1 as UInt64, 4 as UInt64, 16 as UInt64, invalid.operation), "gpu.invalid", 0)
+    if invalid.counts.attempts != 1 or invalid.device.core.resourceCommittedBytes != (512 as UInt64) {
+        abort("malformed native output escaped quarantine or its conservative commitment reservation")
+    }
+    completed(invalid.allocator.trim(), true)
+    let recovered = invalid.allocator.stats()
+    if recovered.isErr() { abort("exact current accounting did not recover after quarantine cleanup") }
+    let recoveredStats = recovered.unwrap(); recovered.releaseContainer()
+    if not recoveredStats.valid() or recoveredStats.committedBytes != (0 as UInt64) or
+        recoveredStats.peakReservedBytes != (512 as UInt64) {
+        abort("quarantine history was misreported as measured native commitment")
+    }
+    recoveredStats.release(); invalid.release()
+
+    let partial = resourceWorld(512 as UInt64, 32, 2)
+    let first = allocated(GpuBuffer<UInt32>.allocate(partial.allocator, 16 as UInt64, 4 as UInt64, 16 as UInt64, partial.operation))
+    let second = allocated(GpuBuffer<UInt32>.allocate(partial.allocator, 16 as UInt64, 4 as UInt64, 16 as UInt64, partial.operation))
+    completed(first.release(), true); completed(second.release(), true); partial.counts.failOnDestroyAttempt = 2
+    let trimmed = partial.allocator.trim()
+    if trimmed.isOkay() { abort("injected second-block cleanup failure was ignored") }
+    let error = trimmed.unwrapErr(); trimmed.releaseContainer()
+    if error.code != "gpu.unavailable" or error.progress != (80 as UInt64) or partial.counts.live != 1 or
+        partial.device.core.resourceCommittedBytes != (80 as UInt64) { abort("partial GPU cleanup progress or retained budget changed") }
+    error.release(); partial.release()
+}
+fun budgetsAndGenerations() r: Void {
+    let world = resourceWorld(128 as UInt64, 32, 2)
+    let other = resourceOpened(GpuAllocator.open(world.context, resourceProvider(world.counts, world.operation),
+        GpuMemoryKind.DeviceLocal, 64 as UInt64, 2, world.operation))
+    let first = allocated(GpuBuffer<UInt32>.allocate(world.allocator, 1 as UInt64, 4 as UInt64, 16 as UInt64, world.operation))
+    rejected(GpuBuffer<UInt32>.allocate(other, 1 as UInt64, 4 as UInt64, 16 as UInt64, world.operation), "gpu.limit", 0)
+    if world.counts.attempts != 1 { abort("shared device budget reached a second native provider") }
+    completed(first.release(), true); completed(world.allocator.trim(), true)
+    let second = allocated(GpuBuffer<UInt32>.allocate(other, 1 as UInt64, 4 as UInt64, 16 as UInt64, world.operation))
+    completed(second.release(), true); completed(other.release(), true); world.release()
+
+    let retired = resourceWorld(512 as UInt64, 3, 1); var index = 0
+    while index < 3 {
+        let buffer = allocated(GpuBuffer<UInt32>.allocate(retired.allocator, 1 as UInt64, 4 as UInt64, 16 as UInt64, retired.operation))
+        retired.allocator.core.slots[buffer.slot].generation = GPU_RESOURCE_MAX_GENERATION; buffer.generation = GPU_RESOURCE_MAX_GENERATION
+        completed(buffer.release(), true); index = index + 1
+    }
+    rejected(GpuBuffer<UInt32>.allocate(retired.allocator, 1 as UInt64, 4 as UInt64, 16 as UInt64, retired.operation), "gpu.limit", 0)
+    if retired.counts.attempts != 1 { abort("retired slot handling allocated another native block") }
+    completed(retired.allocator.close(), true); rejectedStats(retired.allocator.stats())
+    gpuFixtureRejected(retired.allocator.trim(), "gpu.invalid")
+    rejected(GpuBuffer<UInt32>.allocate(retired.allocator, 1 as UInt64, 4 as UInt64, 16 as UInt64, retired.operation), "gpu.invalid", 0)
+    retired.release()
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); construction(); admission(); cleanup(); budgetsAndGenerations()
+    if seen_memory_used_bytes() != baseline { abort("GPU adverse construction cleanup or quota path leaked Seen resources") }
+    println("PASS: GPU-006B adverse budgets late results quarantine cleanup progress and retired generations retain exact ownership")
+    return 0
+}

@@ -1,0 +1,47 @@
+/// A resource provider normalizes native calls. Seen allocators own admission,
+/// suballocation, quotas, accounting, cancellation and retained cleanup.
+import compute.backend.{GpuBackend}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.error.{GpuError}
+import core.result.{Result}
+import memory.allocation.{releaseTraitDispatchBox}
+
+@move
+class GpuNativeBlock {
+    var buffer: UInt64
+    var memory: UInt64
+    var capacity: UInt64
+    var committedBytes: UInt64
+    var bindingAlignment: UInt64
+    var kind: GpuMemoryKind
+    var hostVisible: Bool
+    var hostCoherent: Bool
+}
+
+trait GpuResourceProvider {
+    fun backend(this: GpuResourceProvider) r: GpuBackend
+    fun identity(this: GpuResourceProvider) r: UInt64
+    fun contextIdentity(this: GpuResourceProvider) r: UInt64
+    fun bindingAlignment(this: GpuResourceProvider) r: UInt64
+    /// The native allocation must reject requirements beyond commitLimit
+    /// before committing memory. No fallback to another memory kind.
+    fun createBlock(this: GpuResourceProvider, capacity: UInt64, commitLimit: UInt64,
+        kind: GpuMemoryKind) r: Result<GpuNativeBlock, GpuError>
+    /// Success consumes native handles; failure retains both unchanged.
+    fun destroyBlock(this: GpuResourceProvider, borrow block: GpuNativeBlock) r: Result<Bool, GpuError>
+    fun release(this: GpuResourceProvider) r: Void
+}
+
+@move
+class GpuResourceProviderHandle {
+    var value: dyn GpuResourceProvider
+    /// SDK queue metadata is absent for a provider without native submission.
+    var nativeQueue: UInt64
+    var queueFamily: UInt32
+    static fun create(provider: dyn GpuResourceProvider) r: GpuResourceProviderHandle {
+        return GpuResourceProviderHandle{value: provider, nativeQueue: 0 as UInt64, queueFamily: 0 as UInt32}
+    }
+    fun release() r: Void {
+        this.value.release(); releaseTraitDispatchBox(this.value as UInt64); this.free()
+    }
+}

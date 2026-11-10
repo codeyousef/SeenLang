@@ -1,0 +1,1 @@
+fun main() r: Int { let x = simd_unsafe_masked_load_f32x3(0); return 0 }

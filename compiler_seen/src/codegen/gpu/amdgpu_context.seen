@@ -1,0 +1,171 @@
+/// One AMDGPU entry owns its text, resource records and private word slots.
+/// LLVM promotes the private slots after structured lowering; only device
+/// address-space pointers enter the artifact. Validation and target are borrowed.
+import codegen.gpu_ir_model.{GpuIrValidation}
+import codegen.gpu.text_buffer.{GpuTextBuffer}
+
+fun amdValue(text: GpuTextBuffer, id: Int) r: Void { text.literal("%v"); text.number(id) }
+fun amdSlot(text: GpuTextBuffer, id: Int) r: Void { text.literal("%w"); text.number(id) }
+fun amdLabel(text: GpuTextBuffer, id: Int) r: Void { text.literal("seen_L"); text.number(id) }
+fun amdDefinition(text: GpuTextBuffer, id: Int) r: Void { text.literal("  "); amdValue(text, id); text.literal(" = ") }
+
+class GpuAmdResource {
+    var typeCode: Int
+    var address: Int
+    var length: Int
+    var uniformBase: Int
+    var shared: Bool
+}
+class GpuAmdFunction {
+    var validation: GpuIrValidation
+    var target: String
+    var body: GpuTextBuffer
+    var initializers: GpuTextBuffer
+    var allocations: GpuTextBuffer
+    var globals: GpuTextBuffer
+    var resources: Array<GpuAmdResource>
+    var words: Array<Int>
+    var constants: Array<Int>
+    var nextWord: Int
+    var nextValue: Int
+    var nextLabel: Int
+    var sharedBytes: Int
+    var workgroupX: Int
+    var workgroupY: Int
+    var workgroupZ: Int
+    var entryIndex: Int
+    var functionIndex: Int
+    var blockIndex: Int
+    var instructionIndex: Int
+    var implicitAddress: Int
+    var faultBuffer: Bool
+    var terminated: Bool
+    fun error(code: String, message: String) r: Void {
+        this.validation.reject(code, message, this.functionIndex, this.blockIndex, this.instructionIndex)
+    }
+    fun value() r: Int {
+        if this.nextValue >= 1048576 { this.error("E_GPU_AMDGPU_LIMIT", "AMDGPU SSA identity ceiling exceeded"); return 0 }
+        let id = this.nextValue; this.nextValue = id + 1; return id
+    }
+    fun label() r: Int {
+        if this.nextLabel >= 1048576 { this.error("E_GPU_AMDGPU_LIMIT", "AMDGPU label ceiling exceeded"); return 0 }
+        let id = this.nextLabel; this.nextLabel = id + 1; return id
+    }
+    fun allocate(count: Int) r: Int {
+        if count < 1 or count > 65536 - this.nextWord { this.error("E_GPU_AMDGPU_LIMIT", "AMDGPU private word ceiling exceeded"); return 0 }
+        let first = this.nextWord; var i = 0
+        while i < count {
+            let id = first + i; this.allocations.literal("  "); amdSlot(this.allocations, id)
+            this.allocations.literal(" = alloca i32, align 4, addrspace(5)\n")
+            this.initializers.literal("  store i32 0, ptr addrspace(5) "); amdSlot(this.initializers, id); this.initializers.literal(", align 4\n")
+            i = i + 1
+        }; this.nextWord = first + count; return first
+    }
+    fun word(bits: Int) r: Int {
+        let normalized = bits & 4294967295; var i = 0
+        while i < this.words.length() { if this.words[i] == normalized { return this.constants[i] }; i = i + 1 }
+        if this.words.length() >= 16384 { this.error("E_GPU_AMDGPU_LIMIT", "AMDGPU constant ceiling exceeded"); return 0 }
+        let slot = this.allocate(1); this.words.push(normalized); this.constants.push(slot)
+        this.initializers.literal("  store i32 "); this.initializers.number(normalized); this.initializers.literal(", ptr addrspace(5) ")
+        amdSlot(this.initializers, slot); this.initializers.literal(", align 4\n"); return slot
+    }
+    fun read(slot: Int) r: Int {
+        if slot < 1 or slot >= this.nextWord { this.error("E_GPU_AMDGPU_LAYOUT", "AMDGPU word lacks private storage"); return 0 }
+        let id = this.value(); amdDefinition(this.body, id); this.body.literal("load i32, ptr addrspace(5) ")
+        amdSlot(this.body, slot); this.body.literal(", align 4\n"); return id
+    }
+    fun write(slot: Int, value: Int) r: Void {
+        if slot < 1 or slot >= this.nextWord { this.error("E_GPU_AMDGPU_LAYOUT", "AMDGPU destination lacks private storage"); return }
+        this.body.literal("  store i32 "); amdValue(this.body, value); this.body.literal(", ptr addrspace(5) ")
+        amdSlot(this.body, slot); this.body.literal(", align 4\n")
+    }
+    fun copy(destination: Int, source: Int, count: Int) r: Void {
+        var i = 0; while i < count { this.write(destination + i, this.read(source + i)); i = i + 1 }
+    }
+    fun binary(opcode: String, destination: Int, left: Int, right: Int) r: Void {
+        let a = this.read(left); let b = this.read(right); let id = this.value()
+        amdDefinition(this.body, id); this.body.literal(opcode); this.body.literal(" i32 "); amdValue(this.body, a)
+        this.body.literal(", "); amdValue(this.body, b); this.body.literal("\n"); this.write(destination, id)
+    }
+    fun asFloat(word: Int) r: Int {
+        let value = this.read(word); let id = this.value(); amdDefinition(this.body, id)
+        this.body.literal("bitcast i32 "); amdValue(this.body, value); this.body.literal(" to float\n"); return id
+    }
+    fun writeFloat(slot: Int, value: Int) r: Void {
+        let id = this.value(); amdDefinition(this.body, id); this.body.literal("bitcast float ")
+        amdValue(this.body, value); this.body.literal(" to i32\n"); this.write(slot, id)
+    }
+    fun floatBinary(opcode: String, destination: Int, left: Int, right: Int) r: Void {
+        let a = this.asFloat(left); let b = this.asFloat(right); let id = this.value()
+        amdDefinition(this.body, id); this.body.literal(opcode); this.body.literal(" float "); amdValue(this.body, a)
+        this.body.literal(", "); amdValue(this.body, b); this.body.literal("\n"); this.writeFloat(destination, id)
+    }
+    fun compare(predicate: String, left: Int, right: Int, floating: Bool) r: Int {
+        var a = 0; var b = 0
+        if floating { a = this.asFloat(left); b = this.asFloat(right) } else { a = this.read(left); b = this.read(right) }
+        let id = this.value(); amdDefinition(this.body, id)
+        if floating { this.body.literal("fcmp ") } else { this.body.literal("icmp ") }
+        this.body.literal(predicate); if floating { this.body.literal(" float ") } else { this.body.literal(" i32 ") }
+        amdValue(this.body, a); this.body.literal(", "); amdValue(this.body, b); this.body.literal("\n"); return id
+    }
+    fun predicateBinary(opcode: String, left: Int, right: Int) r: Int {
+        let id = this.value(); amdDefinition(this.body, id); this.body.literal(opcode); this.body.literal(" i1 ")
+        amdValue(this.body, left); this.body.literal(", "); amdValue(this.body, right); this.body.literal("\n"); return id
+    }
+    fun invertPredicate(predicate: Int) r: Int {
+        let id = this.value(); amdDefinition(this.body, id); this.body.literal("xor i1 ")
+        amdValue(this.body, predicate); this.body.literal(", true\n"); return id
+    }
+    fun boolean(destination: Int, predicate: Int) r: Void {
+        let id = this.value(); amdDefinition(this.body, id); this.body.literal("zext i1 ")
+        amdValue(this.body, predicate); this.body.literal(" to i32\n"); this.write(destination, id)
+    }
+    fun select(destination: Int, yes: Int, no: Int, predicate: Int) r: Void {
+        let a = this.read(yes); let b = this.read(no); let id = this.value(); amdDefinition(this.body, id)
+        this.body.literal("select i1 "); amdValue(this.body, predicate); this.body.literal(", i32 "); amdValue(this.body, a)
+        this.body.literal(", i32 "); amdValue(this.body, b); this.body.literal("\n"); this.write(destination, id)
+    }
+    fun branch(label: Int) r: Void {
+        this.body.literal("  br label %"); amdLabel(this.body, label); this.body.literal("\n"); this.terminated = true
+    }
+    fun conditional(predicate: Int, yes: Int, no: Int) r: Void {
+        this.body.literal("  br i1 "); amdValue(this.body, predicate); this.body.literal(", label %")
+        amdLabel(this.body, yes); this.body.literal(", label %"); amdLabel(this.body, no); this.body.literal("\n"); this.terminated = true
+    }
+    fun defineLabel(label: Int) r: Void {
+        if not this.terminated { this.branch(label) }
+        amdLabel(this.body, label); this.body.literal(":\n"); this.terminated = false
+    }
+    fun branchWhen(predicate: Int, label: Int) r: Void {
+        let next = this.label(); this.conditional(predicate, label, next); this.defineLabel(next)
+    }
+    fun fault(kind: Int) r: Void {
+        if kind < 1 or kind > 5 { this.error("E_GPU_AMDGPU_LAYOUT", "AMDGPU fault kind is invalid"); return }
+        if not this.faultBuffer { this.error("E_GPU_AMDGPU_LAYOUT", "AMDGPU fault operation lacks its reflected binding"); return }
+        let id = this.value(); amdDefinition(this.body, id)
+        this.body.literal("atomicrmw or ptr addrspace(1) %seen_fault, i32 "); this.body.number(1 << (kind - 1))
+        this.body.literal(" syncscope(\"agent\") monotonic, align 4\n")
+    }
+    fun faultWhen(predicate: Int, kind: Int) r: Void {
+        let bad = this.label(); let merge = this.label(); this.conditional(predicate, bad, merge)
+        this.defineLabel(bad); this.fault(kind); this.branch(merge); this.defineLabel(merge)
+    }
+    fun addResource(resource: GpuAmdResource) r: Int {
+        if not this.validation.valid { resource.free(); return -1 }
+        if this.resources.length() >= 8192 { resource.free(); this.error("E_GPU_AMDGPU_LIMIT", "AMDGPU resource ceiling exceeded"); return -1 }
+        let id = this.resources.length(); this.resources.push(resource); return id
+    }
+    fun release() r: Void {
+        var i = 0; while i < this.resources.length() { let resource: GpuAmdResource = this.resources[i]; resource.free(); i = i + 1 }
+        this.resources.free(); this.words.free(); this.constants.free()
+        this.body.release(); this.initializers.release(); this.allocations.release(); this.globals.release(); this.free()
+    }
+}
+fun createGpuAmdFunction(validation: GpuIrValidation, target: String, index: Int, x: Int, y: Int, z: Int, fault: Bool) r: GpuAmdFunction {
+    return GpuAmdFunction{validation: validation, target: target,
+        body: GpuTextBuffer.create(validation, "E_GPU_AMDGPU_LIMIT"), initializers: GpuTextBuffer.create(validation, "E_GPU_AMDGPU_LIMIT"),
+        allocations: GpuTextBuffer.create(validation, "E_GPU_AMDGPU_LIMIT"), globals: GpuTextBuffer.create(validation, "E_GPU_AMDGPU_LIMIT"),
+        resources: Array<GpuAmdResource>(), words: Array<Int>(), constants: Array<Int>(), nextWord: 1, nextValue: 1, nextLabel: 1,
+        sharedBytes: 0, workgroupX: x, workgroupY: y, workgroupZ: z, entryIndex: index, functionIndex: index, blockIndex: -1,
+        instructionIndex: -1, implicitAddress: 0, faultBuffer: fault, terminated: false}
+}

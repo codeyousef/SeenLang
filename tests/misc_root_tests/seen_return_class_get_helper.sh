@@ -36,13 +36,15 @@ BIN="$TMP_DIR/return_class_get"
 LOG="$TMP_DIR/compile.log"
 OUT="$TMP_DIR/run.out"
 
+# Builtin generic names retain precedence. Keep this ordinary-class ABI fixture
+# distinct from Box<T> rather than depending on an invalid unqualified Box.
 cat >"$SRC" <<'EOF'
-class Box {
+class ReturnedRecord {
     var name: String
     var count: Int
 
-    static fun new(name: String, count: Int) r: Box {
-        return Box {
+    static fun new(name: String, count: Int) r: ReturnedRecord {
+        return ReturnedRecord {
             name: name,
             count: count
         }
@@ -50,17 +52,17 @@ class Box {
 }
 
 class BoxStore {
-    var boxes: Array<Box>
+    var boxes: Array<ReturnedRecord>
     var count: Int
 
     static fun new() r: BoxStore {
         return BoxStore {
-            boxes: Array<Box>(),
+            boxes: Array<ReturnedRecord>(),
             count: 0
         }
     }
 
-    fun put(box: Box) {
+    fun put(box: ReturnedRecord) {
         this.boxes.push(box)
         this.count = this.count + 1
     }
@@ -72,17 +74,17 @@ class BoxStore {
         return -1
     }
 
-    fun get(name: String) r: Box {
+    fun get(name: String) r: ReturnedRecord {
         let idx = this.findIndex(name)
         if idx >= 0 { return this.boxes.get(idx) }
-        return Box.new("", 0)
+        return ReturnedRecord.new("", 0)
     }
 }
 
 fun main() r: Int {
     let store = BoxStore.new()
-    store.put(Box.new("one", 1))
-    store.put(Box.new("two", 2))
+    store.put(ReturnedRecord.new("one", 1))
+    store.put(ReturnedRecord.new("two", 2))
 
     let box = store.get("two")
     if box.count != 2 { return 1 }
@@ -94,20 +96,27 @@ fun main() r: Int {
 }
 EOF
 
-if ! bash "$ATTESTED_SEEN" "$COMPILER" compile "$SRC" "$BIN" \
-    --fast --no-cache >"$LOG" 2>&1; then
-    echo "FAIL: class-return get helper repro did not compile"
-    cat "$LOG"
-    exit 1
-fi
-
-run_status=0
-"$BIN" >"$OUT" 2>&1 || run_status=$?
-if [ "$run_status" -ne 0 ]; then
-    echo "FAIL: class-return get helper repro crashed"
-    echo "status=$run_status"
-    cat "$OUT"
-    exit 1
-fi
+for profile in fast release; do
+    BIN="$TMP_DIR/return_class_get-$profile"
+    LOG="$TMP_DIR/$profile.compile.log"
+    OUT="$TMP_DIR/$profile.run.out"
+    flags=(--fast)
+    if [ "$profile" = release ]; then flags=(--release --lto=thin); fi
+    if ! bash "$ATTESTED_SEEN" "$COMPILER" compile "$SRC" "$BIN" \
+        --no-cache --target-cpu=x86-64 "${flags[@]}" >"$LOG" 2>&1; then
+        echo "FAIL: class-return get helper repro did not compile ($profile)"
+        cat "$LOG"
+        exit 1
+    fi
+    bash "$ROOT_DIR/scripts/check_x86_executable_baseline.sh" x86-64 "$BIN"
+    run_status=0
+    timeout --foreground --kill-after=5s 120s "$BIN" >"$OUT" 2>&1 || run_status=$?
+    if [ "$run_status" -ne 0 ]; then
+        echo "FAIL: class-return get helper repro crashed ($profile)"
+        echo "status=$run_status"
+        cat "$OUT"
+        exit 1
+    fi
+done
 
 echo "PASS: class values returned from Array-backed get helpers remain usable"

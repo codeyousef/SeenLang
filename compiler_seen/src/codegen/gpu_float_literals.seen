@@ -1,0 +1,22 @@
+import typechecker.gpu_types.{gpuParseFloatLiteral, GpuFloatLiteralParse}
+/// Convert through a wide, aligned slot: the immutable seed only supports
+/// word-width raw dereferences. Float32 -> Float is exact, so rebiasing the
+/// widened representation preserves binary32 normals and subnormals.
+fun gpuFloatLiteralWord(text: String) r: Int {
+    var start = 0; var sign = 0
+    if text.startsWith("-") { start = 1; sign = 2147483648 }
+    else if text.startsWith("+") { start = 1 }
+    let parsed: GpuFloatLiteralParse = gpuParseFloatLiteral(text, start)
+    if not parsed.valid { parsed.free(); abort("GPU float literal requires prior validation") }
+    let native: Float = parsed.value; parsed.free()
+    let packed: Float32 = native as Float32; let widened: Float = packed as Float
+    let bits: UInt64 = *((&widened) as *UInt64)
+    let exponent = ((bits >> (52 as UInt64)) & (2047 as UInt64)) as Int
+    let fraction = (bits & (4503599627370495 as UInt64)) as Int
+    if exponent == 0 or exponent < 874 { return sign }
+    if exponent == 2047 {
+        if fraction != 0 { return sign | 2143289344 }; return sign | 2139095040
+    }
+    if exponent >= 897 { return sign | ((exponent - 896) << 23) | (fraction >> 29) }
+    return sign | ((4503599627370496 | fraction) >> (926 - exponent))
+}

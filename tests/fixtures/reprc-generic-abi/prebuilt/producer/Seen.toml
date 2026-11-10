@@ -1,0 +1,7 @@
+manifest-version = 1
+
+[project]
+name = "abi_records"
+version = "0.1.0"
+language = "en"
+modules = ["src/value.seen"]

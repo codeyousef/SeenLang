@@ -1,0 +1,24 @@
+class Record { var value: Int }
+@noinline
+fun single(records: Array<Record>, index: Int) r: Int {
+    var value = 7
+    if index < records.length() { value = records[index].value }
+    return value
+}
+@noinline
+fun paired(records: Array<Record>, index: Int, fallback: Int) r: Int {
+    var value = 0
+    if index < records.length() { value = records[index].value } else { value = fallback }
+    return value
+}
+fun main() r: Int {
+    let records = Array<Record>()
+    if single(records, 0) != 7 or paired(records, 0, 9) != 9 { abort("guarded empty array dereferenced an absent record") }
+    records.push(Record{value: 13})
+    if single(records, 0) != 13 or paired(records, 0, 9) != 13 or single(records, 1) != 7 or paired(records, 1, 9) != 9 {
+        abort("guarded array access changed its taken or untaken value")
+    }
+    records[0].free(); records.free()
+    println("PASS: guarded member and array loads execute only within their source branch")
+    return 0
+}

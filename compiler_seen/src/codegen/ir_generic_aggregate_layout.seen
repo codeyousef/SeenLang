@@ -1,0 +1,71 @@
+/// Refresh concrete layouts after every declaration exists. Only inline
+/// aggregate fields and inherited prefixes constrain ordering; class handles
+/// may recurse freely. Reuse the ordinary class layout and ABI authorities.
+import parser.real_parser.{ClassNode}
+import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_type_mapping.{normalizeDeclaredTypeNodeImpl}
+import codegen.ir_struct_layout_state.{registerStructLayoutState}
+import codegen.ir_string_collect.{parseArrayElementTypeImpl}
+import codegen.ir_generic_aggregate.{rejectGenericAggregateImpl}
+
+fun registerGenericAggregateLayoutAtImpl(classes: Array<ClassNode>,
+    states: Array<Int>, index: Int, depth: Int) r: Void {
+    if states[index] == 2 { return }
+    if states[index] == 1 or depth > 256 {
+        rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] cyclic or excessively nested inline class layout")
+    }
+    states[index] = 1
+    let classNode = classes[index]
+    var fieldIndex = -1
+    while fieldIndex < classNode.fields.length() {
+        var dependency = classNode.parentName
+        if fieldIndex >= 0 {
+            if classNode.fields[fieldIndex].name.startsWith("@type_alias:") {
+                fieldIndex = fieldIndex + 1
+                continue
+            }
+            var llvmType = mapTypeState(normalizeDeclaredTypeNodeImpl(
+                classNode.fields[fieldIndex].paramType))
+            var arrayDepth = 0
+            while llvmType.startsWith("[") {
+                if arrayDepth >= 128 {
+                    rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] inline array layout nesting exceeds lowering limit")
+                }
+                llvmType = parseArrayElementTypeImpl(llvmType)
+                arrayDepth = arrayDepth + 1
+            }
+            dependency = ""
+            if llvmType.startsWith("%") {
+                dependency = llvmType.substring(1, llvmType.length())
+                if dependency.startsWith("\"") and dependency.endsWith("\"") {
+                    dependency = dependency.substring(1, dependency.length() - 1)
+                }
+            }
+        }
+        if dependency != "" {
+            var candidate = 0
+            while candidate < classes.length() {
+                if classes[candidate].name == dependency {
+                    registerGenericAggregateLayoutAtImpl(classes, states,
+                        candidate, depth + 1)
+                }
+                candidate = candidate + 1
+            }
+        }
+        fieldIndex = fieldIndex + 1
+    }
+    registerStructLayoutState(classNode)
+    states[index] = 2
+}
+
+fun registerGenericAggregateLayoutsImpl(classes: Array<ClassNode>) r: Void {
+    let states = Array<Int>()
+    var i = 0
+    while i < classes.length() { states.push(0); i = i + 1 }
+    i = 0
+    while i < classes.length() {
+        registerGenericAggregateLayoutAtImpl(classes, states, i, 0)
+        i = i + 1
+    }
+    states.free()
+}

@@ -1,0 +1,16 @@
+/// CDNA MFMA fragments are opaque word bundles, separate from vector lanes.
+/// 16x16x16 FP16/BF16 inputs use two words per lane; FP32 outputs use four.
+import codegen.gpu_matrix_types.{gpuMatrixTypeValid, gpuMatrixShape, gpuMatrixRole, gpuMatrixFormat}
+import codegen.gpu_precision_formats.{GPU_FORMAT_FP16, GPU_FORMAT_BF16, GPU_FORMAT_FP32}
+import codegen.gpu.amdgpu_target.{amdTargetSupportsMfma}
+import typechecker.gpu_types.{gpuTypeLanes}
+fun amdValueWords(typeCode: Int) r: Int {
+    if not gpuMatrixTypeValid(typeCode) { return gpuTypeLanes(typeCode) }
+    if gpuMatrixShape(typeCode) != 0 { return 0 }
+    let format = gpuMatrixFormat(typeCode)
+    if gpuMatrixRole(typeCode) == 2 { if format == GPU_FORMAT_FP32 { return 4 }; return 0 }
+    if format == GPU_FORMAT_FP16 or format == GPU_FORMAT_BF16 { return 2 }; return 0
+}
+fun amdMatrixTargetValid(typeCode: Int, target: String) r: Bool {
+    return amdTargetSupportsMfma(target) and gpuMatrixTypeValid(typeCode) and amdValueWords(typeCode) > 0
+}

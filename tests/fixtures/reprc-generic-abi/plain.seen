@@ -1,0 +1,20 @@
+@repr(C)
+@trivially_copyable
+class PlainDescriptor {
+    var address: *UInt8
+    var length: UInt64
+}
+class PlainDescriptorProbe {
+    var bias: UInt64
+    fun inspect(value: PlainDescriptor) r: UInt64 { return value.length + this.bias }
+}
+fun main() r: Int {
+    let value = PlainDescriptor{address: null as *UInt8, length: 41 as UInt64}
+    let probe = PlainDescriptorProbe{bias: 1 as UInt64}
+    if value.length != (41 as UInt64) or probe.inspect(value) != (42 as UInt64) {
+        abort("plain repr(C) method argument ABI changed")
+    }
+    probe.free()
+    println("PASS: non-generic repr(C) method parameter ABI")
+    return 0
+}

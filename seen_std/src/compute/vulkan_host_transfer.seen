@@ -1,0 +1,54 @@
+/// Explicit host-mediated transport between distinct native Vulkan devices.
+/// This is never chosen implicitly and does not claim peer-to-peer DMA.
+import compute.vulkan_mapping.{GpuVulkanMappedRegion}
+import compute.error.{GpuError, gpuFailure}
+import compute.operation.{gpuCheckOperation}
+import core.operation_context.{OperationContext}
+import core.result.{Result, Ok, Err}
+
+let GPU_VULKAN_HOST_TRANSFER_MAX_BYTES: UInt64 = 16777216 as UInt64
+
+/// Both mappings remain borrowed on every return. Their byte-region leases
+/// exclude conflicting compute use. Destination writes become device-visible
+/// through the mapping's normal coherent/explicit-flush close protocol; an error
+/// reports the exact written prefix and never releases or silently flushes it.
+/// Creator-confined, allocation-free payload copying, cancellation/deadline
+/// observed before each <=64KiB chunk and after the final write.
+fun gpuVkHostTransfer(borrow destination: GpuVulkanMappedRegion, destinationOffset: UInt64,
+    borrow source: GpuVulkanMappedRegion, sourceOffset: UInt64, bytes: UInt64,
+    operation: OperationContext) r: Result<UInt64, GpuError> {
+    if not destination.valid() or not source.valid() or not destination.region.write or
+        bytes == (0 as UInt64) or bytes > GPU_VULKAN_HOST_TRANSFER_MAX_BYTES or
+        destinationOffset > destination.region.bytes or bytes > destination.region.bytes - destinationOffset or
+        sourceOffset > source.region.bytes or bytes > source.region.bytes - sourceOffset {
+        return Err<UInt64, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.host_transfer", "transfer requires live writable destination, live source and bounded byte subranges"))
+    }
+    if not destination.region.lease.ready() { return Err<UInt64, GpuError>(destination.region.lease.lostFailure("gpu.vulkan.host_transfer")) }
+    if not source.region.lease.ready() { return Err<UInt64, GpuError>(source.region.lease.lostFailure("gpu.vulkan.host_transfer")) }
+    let destinationDevice = destination.region.core.provider.value.contextIdentity()
+    let sourceDevice = source.region.core.provider.value.contextIdentity()
+    if destinationDevice == (0 as UInt64) or sourceDevice == (0 as UInt64) or destinationDevice == sourceDevice {
+        return Err<UInt64, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.host_transfer", "host transport requires distinct live native devices"))
+    }
+    if destination.address > (18446744073709551615 as UInt64) - destinationOffset or
+        source.address > (18446744073709551615 as UInt64) - sourceOffset {
+        return Err<UInt64, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.host_transfer", "mapped transport address overflows"))
+    }
+    let to = destination.address + destinationOffset; let from = source.address + sourceOffset
+    if to > (18446744073709551615 as UInt64) - bytes or from > (18446744073709551615 as UInt64) - bytes or
+        (to <= from and from - to < bytes) or (from < to and to - from < bytes) {
+        return Err<UInt64, GpuError>(gpuFailure("gpu.invalid", "gpu.vulkan.host_transfer", "mapped transport ranges overflow or alias"))
+    }
+    let output = to as *UInt8; let input = from as *const UInt8; var copied = 0 as UInt64
+    while copied < bytes {
+        let checked = gpuCheckOperation(operation, "gpu.vulkan.host_transfer")
+        if checked.isErr() { let error = checked.unwrapErr(); checked.releaseContainer(); error.progress = copied; return Err<UInt64, GpuError>(error) }
+        checked.releaseContainer()
+        var count = bytes - copied; if count > (65536 as UInt64) { count = 65536 as UInt64 }
+        let end = copied + count
+        while copied < end { output[copied] = input[copied]; copied = copied + (1 as UInt64) }
+    }
+    let observed = gpuCheckOperation(operation, "gpu.vulkan.host_transfer")
+    if observed.isErr() { let error = observed.unwrapErr(); observed.releaseContainer(); error.progress = copied; return Err<UInt64, GpuError>(error) }
+    observed.releaseContainer(); return Ok<UInt64, GpuError>(copied)
+}

@@ -1,0 +1,6 @@
+fun main() r: Int {
+    println("PASS: fixture metadata actual executable")
+    return 0
+}
+
+main()

@@ -26,7 +26,7 @@ class StringHashMap<V> {
     var length: Int
 
     static fun new() r: StringHashMap<V> {
-        return StringHashMap.withCapacity(defaultCapacity())
+        return StringHashMap<V>.withCapacity(defaultCapacity())
     }
 
     static fun withCapacity(capacity: Int) r: StringHashMap<V> {
@@ -40,7 +40,7 @@ class StringHashMap<V> {
         if budget.isErr() {
             return Err<StringHashMap<V>, AllocError>(budget.unwrapErr())
         }
-        let map = StringHashMap{
+        let map = StringHashMap<V>{
             entries: initializeBuckets<V>(buckets),
             states: initializeStates(buckets),
             length: 0

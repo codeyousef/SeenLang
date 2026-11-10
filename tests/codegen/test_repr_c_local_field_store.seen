@@ -1,0 +1,33 @@
+import compute.vulkan_abi.{gpuVkQueueInfo, gpuVkDeviceInfo, VulkanDeviceQueueCreateInfo}
+@repr(C)
+class NativeLocalRecord { var tag: UInt32; var pNext: *Void; var bytes: UInt64 }
+class NativeRecordOwner { var record: NativeLocalRecord; var sentinel: UInt64 }
+fun nativeRecord() r: NativeLocalRecord {
+    return NativeLocalRecord{tag: 3 as UInt32, pNext: null as *Void, bytes: 0 as UInt64}
+}
+fun main() r: Int {
+    var target = 123 as UInt64
+    let local = nativeRecord()
+    local.pNext = (&target) as *Void
+    local.bytes = 77 as UInt64; local.tag = 9 as UInt32
+    let words = (&local) as *UInt64
+    if words[0] != (9 as UInt64) or words[1] != ((&target) as UInt64) or words[2] != (77 as UInt64) {
+        abort("named repr(C) field stores did not update original native storage")
+    }
+    let owner = NativeRecordOwner{record: nativeRecord(), sentinel: 41 as UInt64}
+    owner.record.pNext = (&target) as *Void; owner.record.bytes = 88 as UInt64
+    owner.sentinel = 42 as UInt64
+    let snapshot = owner.record; let nested = (&snapshot) as *UInt64
+    if nested[1] != ((&target) as UInt64) or nested[2] != (88 as UInt64) or owner.sentinel != (42 as UInt64) {
+        abort("inline aggregate or ordinary class field assignment regressed")
+    }
+    owner.free()
+    var priority = 1.0 as Float32
+    let queue = gpuVkQueueInfo(0 as UInt32, (&priority) as *const Float32)
+    let info = gpuVkDeviceInfo((&queue) as *const VulkanDeviceQueueCreateInfo, null as *const UInt8)
+    info.pNext = (&local) as *Void
+    let sdk = (&info) as *UInt64
+    if sdk[1] != ((&local) as UInt64) or sdk[3] != ((&queue) as UInt64) { abort("SDK create-info mutation changed its native pointers") }
+    println("PASS: native repr(C) local and nested field stores preserve original aggregate storage")
+    return 0
+}

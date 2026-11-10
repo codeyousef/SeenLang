@@ -1,0 +1,122 @@
+import core.result.{Result, Ok, Err}
+import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext}
+import async.executor_core.{ExecutorCore, executorFailure, executorContextFailure,
+    EXECUTOR_FOREVER, executorParkOrHelpLocked, executorStopStatusLocked}
+import async.sync_domain.{asyncSyncAttach, asyncSyncDetach}
+
+@move
+class AsyncBarrier {
+    var core: ExecutorCore
+    var parties: Int
+    var arrived: Int
+    var generation: Int
+    var waiters: Int
+    var broken: Int32
+    var closed: Bool
+
+    static fun create(core: ExecutorCore, parties: Int)
+        r: Result<AsyncBarrier, AsyncError> {
+        if parties <= 0 or parties > core.limits.tasks {
+            return Err<AsyncBarrier, AsyncError>(executorFailure(2 as Int32,
+                "barrier.create", 0 as UInt64))
+        }
+        let status = asyncSyncAttach(core)
+        if status != (0 as Int32) {
+            return Err<AsyncBarrier, AsyncError>(executorFailure(status,
+                "barrier.create", 0 as UInt64))
+        }
+        return Ok<AsyncBarrier, AsyncError>(AsyncBarrier{core: core,
+            parties: parties, arrived: 0, generation: 0, waiters: 0,
+            broken: 0 as Int32, closed: false})
+    }
+
+    fun arrive(context: AsyncOperationContext) r: Result<Int, AsyncError> {
+        let valid = validateAsyncContext(context, "barrier.arrive", 0 as UInt64)
+        if valid.isErr() {
+            let error = valid.unwrapErr(); valid.releaseContainer()
+            return Err<Int, AsyncError>(error)
+        }
+        valid.releaseContainer()
+        var status = this.core.lock(context.operation.monotonicDeadline)
+        if status != (0 as Int32) {
+            return Err<Int, AsyncError>(executorContextFailure(status,
+                "barrier.arrive", 0 as UInt64, context))
+        }
+        if this.closed or this.broken != (0 as Int32) {
+            var failure = this.broken
+            if this.closed { failure = 1 as Int32 }
+            this.core.unlock()
+            return Err<Int, AsyncError>(executorContextFailure(failure,
+                "barrier.arrive", 0 as UInt64, context))
+        }
+        if this.generation != 0 {
+            this.core.unlock()
+            return Err<Int, AsyncError>(executorFailure(1 as Int32,
+                "barrier.arrive", 0 as UInt64))
+        }
+        status = executorStopStatusLocked(this.core, context)
+        if status != (0 as Int32) {
+            this.core.unlock()
+            return Err<Int, AsyncError>(executorContextFailure(status,
+                "barrier.arrive", this.arrived as UInt64, context))
+        }
+        let generation = this.generation
+        this.arrived = this.arrived + 1
+        if this.arrived == this.parties {
+            this.arrived = 0
+            this.generation = this.generation + 1
+            this.core.notify()
+            this.core.unlock()
+            return Ok<Int, AsyncError>(generation)
+        }
+        this.waiters = this.waiters + 1
+        while this.generation == generation and this.broken == (0 as Int32) and
+            not this.closed and status == (0 as Int32) {
+            status = executorParkOrHelpLocked(this.core, context)
+        }
+        this.waiters = this.waiters - 1
+        // A failed participant breaks the generation for every observer;
+        // no participant proceeds with an incomplete synchronization phase.
+        if status != (0 as Int32) and this.generation == generation and
+            this.broken == (0 as Int32) {
+            this.broken = status
+            this.core.notify()
+        }
+        if this.broken != (0 as Int32) { status = this.broken }
+        if this.closed { status = 9 as Int32 }
+        let progress = this.arrived as UInt64
+        this.core.unlock()
+        if status != (0 as Int32) {
+            return Err<Int, AsyncError>(executorContextFailure(status,
+                "barrier.arrive", progress, context))
+        }
+        return Ok<Int, AsyncError>(generation)
+    }
+
+    fun close() r: Result<Bool, AsyncError> {
+        let status = this.core.lock(EXECUTOR_FOREVER)
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status, "barrier.close", 0 as UInt64))
+        }
+        this.closed = true
+        this.broken = 9 as Int32
+        this.core.notify()
+        this.core.unlock()
+        return Ok<Bool, AsyncError>(true)
+    }
+
+    fun release() r: Result<Bool, AsyncError> {
+        let status = this.core.lock(EXECUTOR_FOREVER)
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status, "barrier.release", 0 as UInt64))
+        }
+        if not this.closed or this.waiters != 0 {
+            this.core.unlock()
+            return Err<Bool, AsyncError>(executorFailure(1 as Int32, "barrier.release", 0 as UInt64))
+        }
+        this.core.unlock()
+        asyncSyncDetach(this.core)
+        this.free()
+        return Ok<Bool, AsyncError>(true)
+    }
+}

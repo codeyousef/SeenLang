@@ -1,0 +1,7 @@
+version = 2
+manifest_sha256 = "1417f03d720a01c13453e7d5accd89479035d1ff0897b32f66a5d560f530eef1"
+
+[root]
+name = "cuda_foundation_canary"
+version = "0.23.0"
+dependencies = []

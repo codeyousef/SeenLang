@@ -1,0 +1,64 @@
+import memory.aligned_buffer.{OwnedBuffer}
+import dot_fixture_support.{must}
+import benchmark_statistics.{metric, medianRatioPpm}
+import env.env.{args, releaseArgs}
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_memory_peak_bytes() r: Int64
+@noinline
+fun vectorCopy(borrow source: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>) r: Void {
+    let value: i32x16 = simd_unsafe_masked_load_i32x16(source.data as Int,
+        mask16(true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true),
+        i32x16(0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0))
+    simd_unsafe_masked_store_i32x16(value, output.data as Int,
+        mask16(true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true))
+}
+@noinline
+fun scalarCopy(borrow source: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>) r: Void {
+    var i = 0
+    while i < 64 { output.data[i] = source.data[i]; i = i + 1 }
+}
+fun sample(borrow source: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>, vector: Bool) r: Int64 {
+    var i = 0
+    while i < 64 { source.data[i] = i as UInt8; output.data[i] = 0 as UInt8; i = i + 1 }
+    let start = seen_time_monotonic_nanos(); i = 0
+    while i < 16384 {
+        if vector { vectorCopy(source, output) } else { scalarCopy(source, output) }
+        source.data[0] = (((output.data[63] as Int) + (i % 193)) % 251) as UInt8
+        i = i + 1
+    }
+    let elapsed = seen_time_monotonic_nanos() - start
+    if elapsed <= (0 as Int64) or elapsed > (10000000000 as Int64) { abort("invalid benchmark duration") }
+    if output.data[0] != (((63 + (16382 % 193)) % 251) as UInt8) { abort("copy benchmark feedback mismatch") }
+    i = 1
+    while i < 64 { if output.data[i] != (i as UInt8) { abort("copy benchmark parity mismatch") }; i = i + 1 }
+    return elapsed
+}
+fun main() r: Int {
+    let argv = args(); var enforce = false
+    if argv.length() > 2 { releaseArgs(argv); return 1 }
+    if argv.length() == 2 { if argv[1] != "--enforce" { releaseArgs(argv); return 1 }; enforce = true }
+    releaseArgs(argv)
+    let source: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(64 as UInt64, 1 as UInt64, 64 as UInt64))
+    let output: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(64 as UInt64, 1 as UInt64, 64 as UInt64))
+    var i = 0
+    while i < 5 { let a = sample(source, output, false); let b = sample(source, output, true); i = i + 1 }
+    let ratios = Array<Int64>(); i = 0; while i < 30 { ratios.push(0 as Int64); i = i + 1 }
+    let memory = seen_memory_used_bytes(); i = 0
+    while i < 30 {
+        var control = 0 as Int64; var candidate = 0 as Int64
+        if i % 2 == 0 { control = sample(source, output, false); candidate = sample(source, output, true) }
+        else { candidate = sample(source, output, true); control = sample(source, output, false) }
+        ratios[i] = candidate * (1000000 as Int64) / control
+        if seen_memory_used_bytes() != memory { return 2 }; i = i + 1
+    }
+    let ratio = medianRatioPpm(ratios)
+    println("BENCH: masked-copy warmups=5 samples=30 paired=true bytes_per_sample=1048576 control=scalar clock=monotonic")
+    metric("BENCH: median_ratio_ppm=", ratio)
+    metric("BENCH: allocator_peak_bytes=", seen_memory_peak_bytes())
+    if enforce and ratio > (1050000 as Int64) { return 3 }
+    ratios.free(); source.close(); source.free(); output.close(); output.free()
+    println("PASS: portable SIMD operation paired performance and allocator stability")
+    if not enforce { println("PENDING: designated-machine performance enforcement") }
+    return 0
+}

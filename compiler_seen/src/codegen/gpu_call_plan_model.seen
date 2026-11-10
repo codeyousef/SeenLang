@@ -1,0 +1,17 @@
+/// Owned temporary call plan; source expressions remain borrowed.
+import parser.real_parser.{ParserExpressionNode}
+
+class GpuCallPlan {
+    var opcode: Int
+    var typeCode: Int
+    var immediate: Int
+    var dataOperands: Int
+    var dataOffset: Int
+    var resourceMask: Int
+    var memoryScope: Int
+    var memoryOrder: Int
+    var memorySpaces: Int
+}
+fun gpuLowerName(expression: ParserExpressionNode) r: String {
+    if expression.variableName != "" { return expression.variableName }; return expression.literalValue
+}

@@ -2,7 +2,17 @@ import json.parser.{parseJson}
 import lsp.jsonrpc.{LspMessage_fromJson}
 
 fun main() r: Int {
-    let source = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{}}"
+    // Seen uses doubled braces for literal braces. Check the actual JSON
+    // bytes before parsing so a malformed fixture cannot masquerade as a
+    // parser or JSON-RPC regression.
+    let source = "{{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{{}}}}"
+    if source.length() != 58 or source.byteAt(0) != 123 or
+        source.byteAt(55) != 123 or source.byteAt(56) != 125 or
+        source.byteAt(57) != 125 {
+
+        println("JSON-RPC fixture bytes failed")
+        return 4
+    }
     let parsed = parseJson(source)
     if parsed.success != 1 or parsed.value == null {
         println("json parse failed: " + parsed.error + " at " +
@@ -19,6 +29,7 @@ fun main() r: Int {
         println("message fields failed")
         return 3
     }
+    println("PASS: literal JSON-RPC bytes parse with nested empty params")
     return 0
 }
 

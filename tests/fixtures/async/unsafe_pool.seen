@@ -1,0 +1,8 @@
+import async.pools.{TypedWorkerPool}
+import async.pool_placement.{PoolPlacement}
+import async.executor_core.{ExecutorLimits}
+fun unsafePool(limits: ExecutorLimits, placement: PoolPlacement) r: Int {
+    let pool = TypedWorkerPool<*Void>.create("cpu", limits, placement)
+    return 0
+}
+fun main() r: Int { return 0 }

@@ -8,6 +8,8 @@ import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureFloatPa
 import codegen.ir_decl_registry.{LateUserDeclareState, recordLateUserDeclareIntoStateImpl}
 import codegen.ir_decl_state_driver.{captureLateUserDeclareState, applyLateUserDeclareState}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
+import codegen.ir_codegen_target_state.{findForeignScalarAbiImpl, foreignScalarReturnPrefixImpl, foreignScalarParameterSuffixImpl}
+import json.builder.{seen_string_release_owned}
 
 fun promoteRegularCallFloatArgsIfNeededState(output: StringBuilder,
     regBox: Array<Int>, funcName: String, argRegs: Array<String>,
@@ -41,9 +43,35 @@ fun emitPreparedRegularFunctionCallState(output: StringBuilder,
     shouldTailCall: Bool) r: String {
 
     let tailFlag = regularCallTailFlagImpl(shouldTailCall)
-    return emitUserFunctionCallImpl(output, regBox,
-        quoteIdentIfNeededImpl(funcName), llvmReturnType, argRegs,
-        argTypeStrs, tailFlag)
+    if findForeignScalarAbiImpl(funcName) < 0 {
+        return emitUserFunctionCallImpl(output, regBox,
+            quoteIdentIfNeededImpl(funcName), llvmReturnType, argRegs,
+            argTypeStrs, tailFlag)
+    }
+    let abiArgTypes = Array<String>()
+    var abiIdx = 0
+    while abiIdx < argTypeStrs.length() {
+        let suffix = foreignScalarParameterSuffixImpl(funcName, abiIdx)
+        if suffix == "" { abiArgTypes.push(argTypeStrs[abiIdx]) }
+        else { abiArgTypes.push(argTypeStrs[abiIdx] + suffix) }
+        abiIdx = abiIdx + 1
+    }
+    let returnPrefix = foreignScalarReturnPrefixImpl(funcName)
+    var decoratedReturn = llvmReturnType
+    if returnPrefix != "" { decoratedReturn = returnPrefix + llvmReturnType }
+    let result = emitUserFunctionCallImpl(output, regBox,
+        quoteIdentIfNeededImpl(funcName), decoratedReturn, argRegs,
+        abiArgTypes, tailFlag)
+    abiIdx = 0
+    while abiIdx < abiArgTypes.length() {
+        if foreignScalarParameterSuffixImpl(funcName, abiIdx) != "" {
+            seen_string_release_owned(abiArgTypes[abiIdx])
+        }
+        abiIdx = abiIdx + 1
+    }
+    if returnPrefix != "" { seen_string_release_owned(decoratedReturn) }
+    abiArgTypes.free()
+    return result
 }
 
 fun emitRegularFunctionCallTailState(output: StringBuilder, funcName: String,

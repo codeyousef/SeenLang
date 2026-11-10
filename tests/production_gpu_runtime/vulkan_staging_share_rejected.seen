@@ -1,0 +1,5 @@
+import compute.vulkan_staging.{GpuVulkanStagingTicket}
+import async.queue.{AsyncQueue}
+import async.executor_core.{ExecutorCore}
+fun invalid(core: ExecutorCore) r: Void { let queue = AsyncQueue<GpuVulkanStagingTicket>.create(core, 1) }
+fun main() r: Int { return 0 }

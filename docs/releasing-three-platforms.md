@@ -20,16 +20,20 @@ success followed by optional uploads.
    the run ID. Resolve the branch from the version-bound policy:
 
    ```bash
-   VERSION=0.22.11
+   VERSION=0.23.0 # Unreleased development target; not publication authorization.
    SOURCE_BRANCH=$(python3 scripts/check_release_ci_run.py \
      --tag "v$VERSION" --source-branch)
    ```
 
-   Only `v0.22.11` uses `release/0.22.11`, based on published `v0.22.10`.
-   All other supported versions use `main`; do not merge unreleased 0.23.0
-   feature commits into this maintenance branch. Full contained CI and the
-   exact-SHA toolchain artifact run on both authorized branches. Explicit manual
-   CI is available for diagnostics but is not authoritative push evidence.
+   Only historical `v0.22.11` uses `release/0.22.11`, based on published
+   `v0.22.10`. All other supported versions use `main`; do not merge unreleased
+   0.23.0 feature commits into that maintenance branch. Certification requires
+   successful `bootstrap`, all four `acceptance` matrix jobs, and the final
+   `required` job from the same run. The release verifier checks each actual job
+   result and the non-expired, exact-source `seen-release-toolchain-SHA`
+   artifact; skipped jobs and unverified `seen-bootstrap-candidate-SHA`
+   artifacts cannot authorize publication. Explicit manual CI is available for
+   diagnostics but is not authoritative push evidence.
 3. Build both cross-host inputs from the clean final commit, using a locally
    copied, hash-recorded Apple SDK and the verified candidate compiler:
 
@@ -50,6 +54,13 @@ success followed by optional uploads.
    substitute for the validated ABI transformer. If a hard-bounded native Mac
    smoke is unavailable, report that limitation explicitly; static Mach-O
    validation is not native execution evidence.
+
+   Release version/protocol smoke is not a Metal aggregate-compile guard.
+   Official Darwin Metal compilation remains blocked on trusted aggregate
+   isolation; downloading the Metal developer-tools SDK on Windows requires an
+   Apple Account. Neither release smoke nor a static SDK check resolves SDK
+   adoption rights or buildability, and neither can waive the required platform
+   certification.
 
 ## One tag and one release
 

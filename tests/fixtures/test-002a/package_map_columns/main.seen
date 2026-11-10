@@ -1,0 +1,7 @@
+import support.{checkPackageMapRows}
+
+fun main() r: Int {
+    checkPackageMapRows()
+    println("PASS: TEST-002A package-map v2 framing and byte offsets")
+    return 0
+}

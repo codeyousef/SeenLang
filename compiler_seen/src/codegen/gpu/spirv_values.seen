@@ -1,0 +1,81 @@
+/// Value and memory instruction lowering. Structured regions and helper calls
+/// are handled by the region walker; this module never traverses child blocks.
+import codegen.gpu_ir_ops.{GPU_IR_BINARY, GPU_IR_BITCAST, GPU_IR_BOOL, GPU_IR_BUILTIN, GPU_IR_CAST, GPU_IR_EXTRACT, GPU_IR_FAULT, GPU_IR_FLOAT, GPU_IR_INDUCTION, GPU_IR_INT, GPU_IR_INTRINSIC, GPU_IR_LENGTH, GPU_IR_LOAD, GPU_IR_LOCAL_INIT, GPU_IR_LOCAL_LOAD, GPU_IR_LOCAL_STORE, GPU_IR_PARAM, GPU_IR_SELECT, GPU_IR_SHARED, GPU_IR_STORE, GPU_IR_UNARY, GPU_IR_UNIFORM, GPU_IR_VECTOR}
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu.spirv_function.{GpuSpirvFunction}
+import codegen.gpu_emission_frame.{GpuEmissionFrame, gpuEmissionVectorSource}
+import typechecker.gpu_types.{gpuTypeLanes}
+import codegen.gpu.spirv_types.{spirvFloatLiteralWord}
+import codegen.gpu.spirv_layout.{spirvCreateResource}
+import codegen.gpu.spirv_shared.{spirvInitializeShared}
+import codegen.gpu.spirv_math.{spirvUnary, spirvBinary, spirvSelectValue}
+import codegen.gpu.spirv_casts.{spirvCast}
+import codegen.gpu.spirv_intrinsics.{spirvIntrinsic}
+import codegen.gpu.spirv_memory.{spirvResourceLength, spirvCheckedLoad, spirvCheckedStore, spirvUniformLoad}
+import codegen.gpu.spirv_atomics.{spirvAtomic, spirvSynchronization}
+import codegen.gpu.spirv_subgroup.{spirvSubgroup}
+import codegen.gpu.spirv_specialization.{spirvSpecialization}
+import codegen.gpu.spirv_cooperative.{spirvCooperative}
+import codegen.gpu.spirv_packed.{spirvPacked}
+import codegen.gpu_ir_ops.{GPU_IR_UNPACK, GPU_IR_PACK}
+import codegen.gpu_ir_ops.{GPU_IR_COOP_LOAD, GPU_IR_COOP_FILL}
+import codegen.gpu_ir_ops.{GPU_IR_ATOMIC_LOAD, GPU_IR_ATOMIC_COMPARE, GPU_IR_BARRIER, GPU_IR_MEMORY_BARRIER, GPU_IR_SUBGROUP, GPU_IR_SPECIALIZE}
+
+fun spirvLowerValue(function: GpuSpirvFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Void {
+    let context = function.context; let code = op.opcode; var result = 0
+    if code == GPU_IR_PARAM {
+        frame.registers[op.result] = frame.arguments[op.immediate]
+        frame.resourceIndices[op.result] = frame.argumentResources[op.immediate]; return
+    }
+    if code == GPU_IR_INT { result = context.constant(op.typeCode, op.text.toInt() & 4294967295) }
+    else if code == GPU_IR_FLOAT { result = context.constant(4, spirvFloatLiteralWord(op.text)) }
+    else if code == GPU_IR_BOOL { var word = 0; if op.text == "true" { word = 1 }; result = context.constant(1, word) }
+    else if code == GPU_IR_BUILTIN { result = function.builtin(op.immediate) }
+    else if code == GPU_IR_EXTRACT {
+        result = context.id(); function.emit(81, [context.valueType(op.typeCode), result, frame.registers[op.operands[0]], op.immediate])
+    } else if code == GPU_IR_VECTOR {
+        result = context.id(); let operands = [context.valueType(op.typeCode), result]; var i = 0
+        while i < gpuTypeLanes(op.typeCode) { operands.push(gpuEmissionVectorSource(frame, op, i)); i = i + 1 }; function.emit(80, operands)
+    } else if code == GPU_IR_CAST or code == GPU_IR_BITCAST {
+        let source = op.operands[0]; result = spirvCast(function, frame.registerTypes[source], op.typeCode, frame.registers[source], code == GPU_IR_BITCAST)
+    } else if code == GPU_IR_UNARY { result = spirvUnary(function, op.immediate, op.typeCode, frame.registers[op.operands[0]]) }
+    else if code == GPU_IR_BINARY {
+        let left = op.operands[0]; result = spirvBinary(function, op.immediate, frame.registerTypes[left], op.typeCode, frame.registers[left], frame.registers[op.operands[1]])
+    } else if code == GPU_IR_INTRINSIC {
+        let arguments = Array<Int>(); var i = 0
+        while i < op.operands.length() { arguments.push(frame.registers[op.operands[i]]); i = i + 1 }
+        result = spirvIntrinsic(function, op.immediate, op.typeCode, arguments); arguments.free()
+    } else if code == GPU_IR_LENGTH {
+        let index = frame.resourceIndices[op.operands[0]]
+        if index < 0 or index >= function.resources.length() { context.error("E_GPU_SPIRV_LAYOUT", "SPIR-V length resource identity is unavailable"); return }
+        result = spirvResourceLength(function, function.resources[index])
+    } else if code == GPU_IR_LOAD or code == GPU_IR_STORE {
+        let resource = frame.resourceIndices[op.operands[0]]; let index = op.operands[1]
+        if code == GPU_IR_LOAD { result = spirvCheckedLoad(function, resource, frame.registers[index], frame.registerTypes[index]) }
+        else { spirvCheckedStore(function, resource, frame.registers[index], frame.registerTypes[index], frame.registers[op.operands[2]]) }
+    } else if code == GPU_IR_UNIFORM { result = spirvUniformLoad(function, frame.resourceIndices[op.operands[0]]) }
+    else if code == GPU_IR_LOCAL_INIT {
+        let pointer = function.variable(op.typeCode); frame.localPointers[op.immediate] = pointer
+        function.emit(62, [pointer, frame.registers[op.operands[0]]])
+    } else if code == GPU_IR_LOCAL_LOAD {
+        result = context.id(); function.emit(61, [context.valueType(op.typeCode), result, frame.localPointers[op.immediate]])
+    } else if code == GPU_IR_LOCAL_STORE { function.emit(62, [frame.localPointers[op.immediate], frame.registers[op.operands[0]]]) }
+    else if code == GPU_IR_INDUCTION {
+        if frame.inductionPointers.length() == 0 { context.error("E_GPU_SPIRV_LAYOUT", "SPIR-V induction lacks its loop frame"); return }
+        result = context.id(); function.emit(61, [context.valueType(op.typeCode), result, frame.inductionPointers[frame.inductionPointers.length() - 1]])
+    } else if code == GPU_IR_SHARED {
+        let resource = spirvCreateResource(context, op.typeCode, -1, op.immediate)
+        let index = function.addResource(resource)
+        if not context.validation.valid { return }
+        frame.resourceIndices[op.result] = index; spirvInitializeShared(function, function.resources[index]); return
+    } else if code >= GPU_IR_ATOMIC_LOAD and code <= GPU_IR_ATOMIC_COMPARE { result = spirvAtomic(function, frame, op) }
+    else if code == GPU_IR_BARRIER or code == GPU_IR_MEMORY_BARRIER { spirvSynchronization(function, op) }
+    else if code == GPU_IR_SUBGROUP { result = spirvSubgroup(function, frame, op) }
+    else if code == GPU_IR_SPECIALIZE { result = spirvSpecialization(context, op.immediate, op.typeCode, frame.registers[op.operands[0]]) }
+    else if code == GPU_IR_UNPACK or code == GPU_IR_PACK { result = spirvPacked(function, frame, op) }
+    else if code >= GPU_IR_COOP_LOAD and code <= GPU_IR_COOP_FILL { result = spirvCooperative(function, frame, op) }
+    else if code == GPU_IR_FAULT { function.faultKind(op.immediate) }
+    else if code == GPU_IR_SELECT { result = spirvSelectValue(function, op.typeCode, frame.registers[op.operands[0]], frame.registers[op.operands[1]], frame.registers[op.operands[2]]) }
+    else { context.error("E_GPU_SPIRV_UNSUPPORTED", "SPIR-V instruction requires an unavailable target capability"); return }
+    if op.result > 0 { frame.registers[op.result] = result }
+}

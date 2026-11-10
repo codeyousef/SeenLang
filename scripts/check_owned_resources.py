@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import json
 import random
+import re
 import sys
 import time
 from pathlib import Path
@@ -16,6 +17,7 @@ MAX_RESOURCES = 4096
 MAX_OPERATIONS = 16_384
 FIELDS = {"max_resources", "operations", "schema"}
 OP_FIELDS = {"kind", "owner", "resource", "target"}
+INVALID_IDENTITY_CHARACTER = re.compile(r"[^a-z0-9._-]", re.ASCII)
 
 
 class ContractError(ValueError):
@@ -40,10 +42,8 @@ def no_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
 def identity(value: object, *, empty: bool = False) -> bool:
     if empty and value == "":
         return True
-    return isinstance(value, str) and 0 < len(value) <= 128 and value.isascii() and all(
-        character.islower() or character.isdigit() or character in "-._"
-        for character in value
-    )
+    return (isinstance(value, str) and 0 < len(value) <= 128 and
+            INVALID_IDENTITY_CHARACTER.search(value) is None)
 
 
 def validate(raw: bytes, max_bytes: int = MAX_BYTES, cancelled: bool = False) -> dict[str, object]:

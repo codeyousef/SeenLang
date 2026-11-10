@@ -1,0 +1,52 @@
+--- a/lib/tsan/rtl/tsan_platform_linux.cpp
++++ b/lib/tsan/rtl/tsan_platform_linux.cpp
+@@ -220,6 +220,9 @@
+   // Unlimited stack is not a problem as well, because the executable
+   // is not compiled with -pie.
+   bool reexec = false;
++#if SANITIZER_LINUX && defined(__x86_64__)
++  bool finite_address_space = false;
++#endif
+   // TSan doesn't play well with unlimited stack size (as stack
+   // overlaps with shadow memory). If we detect unlimited stack size,
+   // we re-exec the program with limited stack size as a best effort.
+@@ -235,12 +238,25 @@
+   }
+ 
+   if (!AddressSpaceIsUnlimited()) {
++#if SANITIZER_LINUX && defined(__x86_64__)
++    struct rlimit as_limit;
++    CHECK_EQ(0, getrlimit(RLIMIT_AS, &as_limit));
++    const uptr required_address_space = HiAppMemEnd();
++    if (as_limit.rlim_cur < required_address_space) {
++      Report("FATAL: ThreadSanitizer: finite address-space limit must cover "
++             "the complete %zu-byte supported address map.\n",
++             required_address_space);
++      Die();
++    }
++    finite_address_space = true;
++#else
+     Report(
+         "WARNING: Program is run with limited virtual address space,"
+         " which wouldn't work with ThreadSanitizer.\n");
+     Report("Re-execing with unlimited virtual address space.\n");
+     SetAddressSpaceUnlimited();
+     reexec = true;
++#endif
+   }
+ 
+ #    if SANITIZER_LINUX
+@@ -267,6 +283,13 @@
+   if (reexec) {
+     // Don't check the address space since we're going to re-exec anyway.
+   } else if (!CheckAndProtect(false, ignore_heap, false)) {
++#if defined(__x86_64__)
++    if (finite_address_space) {
++      Report("FATAL: ThreadSanitizer: incompatible finite address-space "
++             "layout; resource limits and ASLR were not changed.\n");
++      Die();
++    }
++#endif
+     // ASLR personality check.
+     // N.B. 'personality' is sometimes forbidden by sandboxes, so we only call
+     // this as a last resort (when the memory mapping is incompatible and TSan

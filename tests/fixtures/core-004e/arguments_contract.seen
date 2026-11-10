@@ -1,0 +1,53 @@
+import core.error.{AsciiString}
+import core.operation_context.{OperationLimits, OperationContext}
+import determinism.policy.{DeterministicPlatformStatus,
+    DeterministicLocaleIdentity, DeterministicPlatformPolicy,
+    DeterministicCapabilityPolicy}
+import determinism.context.{DeterministicContextRequest,
+    deterministicContextFromProcess, deterministicArgument}
+import memory.allocation.{memoryStats}
+
+fun argumentOperation() r: OperationContext {
+    return OperationContext{cancellation: false,
+        monotonicDeadline: 9223372036854775807 as Int64,
+        limits: OperationLimits{maxTargets: 16, maxIdentityBytes: 256,
+            maxVersionBytes: 256, maxManifestBytes: 65536,
+            maxPathBytes: 4096, maxGraphModules: 64,
+            maxGraphEdges: 256, maxGraphDepth: 32},
+        traceId: AsciiString{value: "core-004e-arguments"}}
+}
+
+fun argumentRequest(index: Int) r: DeterministicContextRequest {
+    let indexes = Array<Int>()
+    indexes.push(index)
+    return DeterministicContextRequest{
+        locale: DeterministicLocaleIdentity{locale: "C.UTF-8", encoding: "UTF-8"},
+        platform: DeterministicPlatformPolicy{target: "linux-x86_64",
+            status: DeterministicPlatformStatus.Verified,
+            toolchainIdentity: "argument-snapshot-contract"},
+        policy: DeterministicCapabilityPolicy{argumentIndexes: indexes,
+            environmentNames: Array<String>(), filesystemRoots: Array<String>(),
+            processStates: Array<String>(), networkStates: Array<String>(),
+            hostCapabilities: Array<String>()}}
+}
+
+fun main() r: Int {
+    let operation = argumentOperation()
+    let captured = deterministicContextFromProcess(argumentRequest(0), operation)
+    if captured.isErr() { return 11 }
+    let argument = deterministicArgument(captured.unwrap(), 0, operation)
+    if argument.isErr() or argument.unwrap() != "kept" { return 12 }
+
+    // A valid grant for a missing argument must not retain copies of unrelated
+    // process arguments. Compare this delta with short and long unused argv.
+    let missing = argumentRequest(255)
+    let before = memoryStats().usedBytes
+    let rejected = deterministicContextFromProcess(missing, operation)
+    let retained = memoryStats().usedBytes - before
+    if not rejected.isErr() or rejected.unwrapErr().code.value != "core.004e.invalid" {
+        return 13
+    }
+    println("ARGUMENT_VIEW=kept")
+    println("INVALID_RETAINED_BYTES=" + retained.toString())
+    return 0
+}

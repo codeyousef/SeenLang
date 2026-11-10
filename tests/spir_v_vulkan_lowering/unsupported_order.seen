@@ -1,0 +1,5 @@
+@compute(1)
+fun sequential(data: Buffer<Int32>) {
+    let value = atomicLoad(data, 0, SequentiallyConsistent, DeviceScope)
+}
+fun main() r: Int { return 0 }

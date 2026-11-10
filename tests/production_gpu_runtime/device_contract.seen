@@ -1,0 +1,108 @@
+import provider_fixture_support.{newProviderCounts, provider, opened, created, rejectedContext, completed}
+import device_fixture_support.{report, operation, releaseOperation, gpuFixtureRejected}
+import compute.device.{GpuDevice, GPU_CONTEXT_MAX_GENERATION}
+import compute.limits.{GpuLimits}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_memory_reserved_bytes() r: Int64
+extern "C" fun seen_memory_limit_bytes() r: Int64
+extern "C" fun seen_memory_set_limit_bytes(bytes: Int64) r: Void
+
+fun main() r: Int {
+    let memory = seen_memory_used_bytes(); let context = operation()
+    let counts = newProviderCounts()
+    let limits = GpuLimits.bounded(2, 2, 16, 4096 as UInt64)
+    let device = opened(GpuDevice.open(provider(counts, context), report(), limits))
+    context.cancellation = true
+    rejectedContext(device.createContext(context), "gpu.cancelled")
+    context.cancellation = false
+    if counts.creates != 0 { abort("cancelled context reached provider") }
+    let first = created(device.createContext(context)); let second = created(device.createContext(context))
+    rejectedContext(device.createContext(context), "gpu.limit")
+    if counts.creates != 2 or counts.live != 2 { abort("context quota checked after native creation") }
+    gpuFixtureRejected(device.close(), "gpu.busy")
+    gpuFixtureRejected(device.release(), "gpu.busy")
+    // A stale generation cannot destroy the current borrower.
+    first.generation = first.generation + (1 as UInt64)
+    gpuFixtureRejected(first.close(), "gpu.invalid")
+    first.generation = first.generation - (1 as UInt64)
+    counts.failDestroy = 1
+    gpuFixtureRejected(first.close(), "gpu.unavailable")
+    if not first.active or device.core.borrowers != 2 or counts.live != 2 { abort("failed context close detached ownership") }
+    counts.refuseDestroy = true
+    gpuFixtureRejected(first.close(), "gpu.invalid")
+    counts.refuseDestroy = false
+    let oldSlot = first.slot; let oldGeneration = first.generation
+    completed(first.close(), true); completed(first.close(), false)
+    let replacement = created(device.createContext(context))
+    if replacement.slot != oldSlot or replacement.generation == oldGeneration { abort("reused context slot lost generation") }
+    completed(second.release(), true); completed(replacement.release(), true)
+    completed(device.close(), true); completed(device.close(), false)
+    rejectedContext(device.createContext(context), "gpu.invalid")
+    completed(device.release(), true)
+    // An already-closed context must not dereference its destroyed owner.
+    completed(first.close(), false); completed(first.release(), true)
+    if counts.releases != 1 or counts.live != 0 or counts.destroys != 3 { abort("device cleanup count mismatch") }
+
+    let late = opened(GpuDevice.open(provider(counts, context), report(), limits))
+    counts.late = true; counts.failDestroy = 2
+    let timedOut = late.createContext(context)
+    if timedOut.isOkay() { abort("late driver context escaped its deadline") }
+    let error = timedOut.unwrapErr(); timedOut.releaseContainer()
+    if error.code != "gpu.timeout" or error.causes.length() != 1 or
+        error.causes[0].code != "gpu.unavailable" { abort("late cleanup failure lost its cause") }
+    error.release()
+    if late.core.borrowers != 0 or counts.live != 1 { abort("late cleanup failure detached native resource") }
+    gpuFixtureRejected(late.close(), "gpu.unavailable")
+    completed(late.close(), true); completed(late.release(), true)
+    context.monotonicDeadline = 9223372036854775807 as Int64
+
+    let quick = opened(GpuDevice.open(provider(counts, context), report(), limits))
+    rejectedContext(quick.createContext(context), "gpu.timeout")
+    if counts.live != 0 { abort("successful late cleanup retained native ownership") }
+    completed(quick.release(), true)
+    context.monotonicDeadline = 9223372036854775807 as Int64
+
+    counts.late = false
+    let adverse = opened(GpuDevice.open(provider(counts, context), report(), limits))
+    counts.failCreate = true
+    rejectedContext(adverse.createContext(context), "gpu.unavailable")
+    counts.failCreate = false; counts.empty = true
+    rejectedContext(adverse.createContext(context), "gpu.invalid")
+    counts.empty = false
+    let createsBeforeBudget = counts.creates; let originalBudget = seen_memory_limit_bytes()
+    seen_memory_set_limit_bytes(seen_memory_used_bytes() + seen_memory_reserved_bytes() + (2048 as Int64))
+    let denied = adverse.createContext(context)
+    seen_memory_set_limit_bytes(originalBudget)
+    rejectedContext(denied, "gpu.limit")
+    if counts.creates != createsBeforeBudget { abort("metadata OOM reached native provider") }
+    let unique = created(adverse.createContext(context))
+    counts.alias = adverse.core.slots[unique.slot].native
+    rejectedContext(adverse.createContext(context), "gpu.invalid")
+    if counts.live != 1 { abort("aliased identity gained another native owner") }
+    completed(unique.release(), true)
+    counts.alias = 0 as UInt64
+    // Exhausted generations retire a slot rather than wrapping to an old ID.
+    adverse.core.slots[0].generation = GPU_CONTEXT_MAX_GENERATION
+    let retired = created(adverse.createContext(context))
+    if retired.slot == 0 { abort("exhausted context generation was reused") }
+    completed(retired.release(), true); completed(adverse.release(), true)
+    // Every failed device constructor consumes both its provider and report.
+    limits.maxContexts = 0
+    let invalidLimits = GpuDevice.open(provider(counts, context), report(), limits)
+    if invalidLimits.isOkay() { abort("invalid device limit accepted") }
+    invalidLimits.unwrapErr().release(); invalidLimits.releaseContainer(); limits.maxContexts = 2
+    let foreignReport = report(); foreignReport.identity.providerId = 2 as UInt64
+    let foreign = GpuDevice.open(provider(counts, context), foreignReport, limits)
+    if foreign.isOkay() { abort("foreign provider report opened a device") }
+    foreign.unwrapErr().release(); foreign.releaseContainer()
+    let malformedReport = report(); malformedReport.capabilities.features = 0 as UInt64
+    let malformed = GpuDevice.open(provider(counts, context), malformedReport, limits)
+    if malformed.isOkay() { abort("malformed report opened a device") }
+    malformed.unwrapErr().release(); malformed.releaseContainer()
+    limits.release(); releaseOperation(context)
+    if counts.live != 0 or counts.releases != 7 { abort("provider ownership did not drain") }
+    counts.free()
+    if seen_memory_used_bytes() != memory { abort("device/context ownership leaked allocations") }
+    println("PASS: GPU-006A typed device context generations quotas late cleanup and owned provider drain")
+    return 0
+}

@@ -1,0 +1,23 @@
+@repr(C)
+@trivially_copyable
+class BorrowedPair {
+    var left: UInt64
+    var right: UInt64
+    fun explicitTotal() r: UInt64 { return this.left + this.right }
+    fun implicitTotal() r: UInt64 { return left + right }
+}
+@repr(C)
+@trivially_copyable
+class BorrowedNested {
+    var pair: BorrowedPair
+    var extra: UInt64
+    fun total() r: UInt64 { return this.pair.left + this.pair.right + this.extra }
+}
+fun main() r: Int {
+    let pair = BorrowedPair{left: 3 as UInt64, right: 7 as UInt64}
+    let nested = BorrowedNested{pair: pair, extra: 11 as UInt64}
+    if pair.explicitTotal() != (10 as UInt64) or pair.implicitTotal() != (10 as UInt64) or
+        nested.total() != (21 as UInt64) { abort("borrowed repr(C) receiver was treated as an aggregate value") }
+    println("PASS: borrowed repr C method receivers preserve explicit implicit and nested field reads")
+    return 0
+}

@@ -4,7 +4,7 @@ Seen uses region-based memory management with no garbage collector. Memory is ma
 
 ## Allocation Failure
 
-Seen 0.22.9 treats allocation failure as part of memory safety. A program can set
+Seen 0.23.0 development treats allocation failure as part of memory safety. A program can set
 or inherit a process allocation budget with `SEEN_MEMORY_LIMIT_BYTES`; runtime
 allocation helpers track used bytes, peak bytes, and allocation failures.
 
@@ -293,6 +293,12 @@ generation and active-resource limits are explicit, cancellation fails before
 acquisition, and `release` is idempotent. The token is native Seen and adds no
 foreign ABI boundary. Closure capture and cross-task transfer require their
 later dedicated ownership analyses and are not implied by this contract.
+
+The host trace verifier, `scripts/check_owned_resources.py`, accepts owner,
+resource and nonempty move-target identities of 1–128 ASCII lowercase letters,
+digits, `-`, `.`, or `_`. Empty targets are reserved for non-move operations.
+Its compiled character scan preserves that grammar and duplicate-JSON-field
+rejection; it does not relax the pinned five-warmup, 30-sample, hard-5% benchmark.
 
 ## Related
 

@@ -1,0 +1,329 @@
+/// The v1 compiler reflection describes scalar descriptors, not descriptor arrays.
+/// SPIR-V runtime array lengths are derived from the exact descriptor byte range.
+import core.result.{Result, Ok, Err}
+import compute.error.{GpuError, gpuFailure}
+import json.strict.{parseStrictJson, StrictJsonLimits}
+import json.parser.{destroyJsonParseResult}
+import json.value.{JsonValue}
+import json.builder.{seen_string_clone_owned, seen_string_release_owned, JsonBuilder_new, destroyJsonBuilder}
+import crypto.sha256.{sha256}
+import memory.allocation.{allocationBudgetAvailable}
+extern "C" fun seen_spirv_validate_binary(binary: String, target: Int32) r: Int32
+
+class GpuVulkanBinding {
+    var group: Int
+    var binding: Int
+    var descriptorType: Int
+    var count: Int
+    var write: Bool
+    var stride: Int
+    var minimumBytes: Int
+    var typeCode: Int
+    var valueType: Int
+    var scalarType: Int
+    var lanes: Int
+    var fault: Bool
+}
+fun gpuVkJsonInt(value: JsonValue, key: String) r: Int {
+    let field = value.get(key)
+    if field == null { field.free(); return -1 }
+    let number = field.unwrap(); field.free(); if not number.isNumber() { return -1 }
+    if not (number.getNumber() >= 0.0 and number.getNumber() <= 4294967295.0) { return -1 }
+    let integer = number.getInt()
+    if integer < 0 or integer > 4294967295 or (integer as Float) != number.getNumber() { return -1 }
+    return integer
+}
+fun gpuVkJsonText(value: JsonValue, key: String) r: String {
+    let field = value.get(key); if field == null { field.free(); return "" }
+    let text = field.unwrap(); field.free()
+    if not text.isString() { return "" }; return text.getString()
+}
+private fun gpuVkJsonAt(value: JsonValue, index: Int) r: JsonValue {
+    // Callers prove array bounds; release the owned nullable box, not its borrowed node.
+    let field = value.getAt(index); let child = field.unwrap(); field.free(); return child
+}
+fun gpuVkPipelineOom(operation: String) r: GpuError {
+    let error = gpuFailure("gpu.out_of_memory", operation, "bounded pipeline host allocation is unavailable; no native work was admitted"); error.retryable = true; return error
+}
+fun gpuVkArtifactError() r: GpuError { return gpuFailure("gpu.unsupported_abi", "gpu.vulkan.artifact", "reflection and physical SPIR-V must agree on the supported v1 buffer ABI") }
+fun gpuVkDigest(text: String) r: Result<String, GpuError> {
+    let hashed = sha256(text)
+    if hashed.isErr() { hashed.unwrapErr().free(); hashed.releaseContainer(); return Err<String, GpuError>(gpuVkPipelineOom("gpu.vulkan.artifact")) }
+    let digest = hashed.unwrap(); hashed.releaseContainer(); return Ok<String, GpuError>(digest)
+}
+fun gpuVkPipelineIdentity(first: String, second: String, third: String) r: String {
+    let builder = JsonBuilder_new(); builder.startArray(); builder.string(first); builder.string(second); builder.string(third); builder.endArray()
+    let identity = builder.build(); destroyJsonBuilder(builder); return identity
+}
+@move
+class GpuVulkanArtifact {
+    var binary: String
+    var reflection: String
+    var entry: String
+    var identity: String
+    var bindings: Array<GpuVulkanBinding>
+    var x: Int
+    var y: Int
+    var z: Int
+    var sharedBytes: Int
+    var requiredCapabilities: Int
+    var groups: Int
+    fun release() r: Void {
+        var i = 0; while i < this.bindings.length() { this.bindings[i].free(); i = i + 1 }
+        this.bindings.free(); seen_string_release_owned(this.binary); seen_string_release_owned(this.reflection)
+        seen_string_release_owned(this.entry); seen_string_release_owned(this.identity); this.free()
+    }
+    static fun parse(binary: String, reflection: String, entry: String) r: Result<GpuVulkanArtifact, GpuError> {
+        if binary.length() < 20 or binary.length() > 33554432 or binary.length() % 4 != 0 or reflection.length() > 4194304 or entry.length() < 1 or entry.length() > 128 {
+            return Err<GpuVulkanArtifact, GpuError>(gpuVkArtifactError())
+        }
+        if not allocationBudgetAvailable(8388608 + binary.length() * 2 + reflection.length() * 32) { return Err<GpuVulkanArtifact, GpuError>(gpuVkPipelineOom("gpu.vulkan.artifact")) }
+        let limits = StrictJsonLimits{maxInputBytes: 4194304, maxDepth: 16, maxValues: 65536, maxStringBytes: 4096}
+        let parsed = parseStrictJson(reflection, limits); limits.free()
+        if parsed.isErr() { parsed.unwrapErr().free(); parsed.releaseContainer(); return Err<GpuVulkanArtifact, GpuError>(gpuVkArtifactError()) }
+        let tree = parsed.unwrap(); parsed.releaseContainer()
+        if tree.value == null { destroyJsonParseResult(tree, true); return Err<GpuVulkanArtifact, GpuError>(gpuVkArtifactError()) }
+        let root = tree.value.unwrap(); let entries = root.get("entries")
+        if gpuVkJsonText(root, "schema") != "seen-gpu-reflection-v1" or gpuVkJsonText(root, "backend") != "spirv" or entries == null or not entries.unwrap().isArray() {
+            entries.free(); destroyJsonParseResult(tree, true); return Err<GpuVulkanArtifact, GpuError>(gpuVkArtifactError())
+        }
+        let entryArray = entries.unwrap(); entries.free()
+        let owner = GpuVulkanArtifact{binary: seen_string_clone_owned(binary), reflection: seen_string_clone_owned(reflection), entry: seen_string_clone_owned(entry), identity: seen_string_clone_owned(""), bindings: Array<GpuVulkanBinding>(), x: 0, y: 0, z: 0, sharedBytes: 0, requiredCapabilities: 0, groups: 0}
+        var found = false; var valid = true; var i = 0
+        while i < entryArray.length() {
+            let item = gpuVkJsonAt(entryArray, i)
+            if gpuVkJsonText(item, "name") == entry {
+                if found { valid = false }; found = true
+                let workgroup = item.get("workgroup"); let bindings = item.get("bindings"); let fault = item.get("requires_fault_buffer")
+                if workgroup == null or bindings == null or fault == null { valid = false }
+                else if not workgroup.unwrap().isArray() or workgroup.unwrap().length() != 3 or not bindings.unwrap().isArray() or bindings.unwrap().length() > 64 or not fault.unwrap().isBool() { valid = false }
+                else {
+                    var axis = 0
+                    while axis < 3 {
+                        let value = gpuVkJsonAt(workgroup.unwrap(), axis); var n = 0
+                        if value.isNumber() { if value.getNumber() >= 1.0 and value.getNumber() <= 1024.0 { n = value.getInt() } }
+                        if not value.isNumber() or n < 1 or n > 1024 or value.getNumber() != (n as Float) { valid = false }
+                        if axis == 0 { owner.x = n }; if axis == 1 { owner.y = n }; if axis == 2 { owner.z = n }; axis = axis + 1
+                    }
+                    owner.sharedBytes = gpuVkJsonInt(item, "shared_bytes"); owner.requiredCapabilities = gpuVkJsonInt(item, "required_capabilities")
+                    var j = 0
+                    while j < bindings.unwrap().length() {
+                        let b = gpuVkJsonAt(bindings.unwrap(), j); let kind = gpuVkJsonText(b, "kind"); let access = gpuVkJsonText(b, "access")
+                        let group = gpuVkJsonInt(b, "group"); let binding = gpuVkJsonInt(b, "binding")
+                        let stride = gpuVkJsonInt(b, "element_stride"); let minimum = gpuVkJsonInt(b, "minimum_binding_bytes")
+                        var descriptorType = 7; if kind == "uniform" { descriptorType = 6 }
+                        if group < 0 or group >= 4 or binding < 0 or binding > 65535 or stride < 1 or stride > 64 or minimum < 0 or (kind != "storage" and kind != "uniform") or (access != "read" and access != "write" and access != "read_write") or (kind == "uniform" and access != "read") { valid = false }
+                        let count = b.get("count")
+                        if count != null { let value = count.unwrap(); if not value.isNumber() or value.getNumber() != 1.0 { valid = false } }
+                        count.free()
+                        let typeCode = gpuVkJsonInt(b, "type"); let valueType = gpuVkJsonInt(b, "value_type"); let scalarType = gpuVkJsonInt(b, "scalar_type"); let lanes = gpuVkJsonInt(b, "lanes")
+                        var resource = 1; if access == "write" { resource = 2 }; if access == "read_write" { resource = 3 }; if kind == "uniform" { resource = 4 }
+                        var expectedStride = lanes * 4; if lanes == 3 { expectedStride = 16 }
+                        if lanes < 1 or lanes > 4 or scalarType < 1 or scalarType > 4 or valueType != scalarType + 16 * (lanes - 1) or typeCode != resource * 1000 + valueType or stride != expectedStride or (kind == "uniform" and minimum != 16) or (kind == "storage" and (minimum != 0 or scalarType == 1)) { valid = false }
+                        var k = 0; while k < owner.bindings.length() { if owner.bindings[k].group == group and owner.bindings[k].binding == binding { valid = false }; k = k + 1 }
+                        owner.bindings.push(GpuVulkanBinding{group: group, binding: binding, descriptorType: descriptorType, count: 1, write: access != "read", stride: stride, minimumBytes: minimum, typeCode: typeCode, valueType: valueType, scalarType: scalarType, lanes: lanes, fault: false})
+                        if group + 1 > owner.groups { owner.groups = group + 1 }; j = j + 1
+                    }
+                    if fault.unwrap().getBool() {
+                        let binding = gpuVkJsonInt(item, "fault_binding")
+                        if binding < 0 or binding > 65535 { valid = false }
+                        var k = 0; while k < owner.bindings.length() { if owner.bindings[k].group == 0 and owner.bindings[k].binding == binding { valid = false }; k = k + 1 }
+                        owner.bindings.push(GpuVulkanBinding{group: 0, binding: binding, descriptorType: 7, count: 1, write: true, stride: 4, minimumBytes: 4, typeCode: 0, valueType: 3, scalarType: 3, lanes: 1, fault: true})
+                        if owner.groups == 0 { owner.groups = 1 }
+                    } else {
+                        let fb = item.get("fault_binding"); if fb == null or not fb.unwrap().isNumber() or fb.unwrap().getNumber() != -1.0 { valid = false }
+                        fb.free()
+                    }
+                }
+                workgroup.free(); bindings.free(); fault.free()
+            }
+            i = i + 1
+        }
+        destroyJsonParseResult(tree, true)
+        if not found or not valid or owner.sharedBytes < 0 or owner.requiredCapabilities < 0 {
+            owner.release(); return Err<GpuVulkanArtifact, GpuError>(gpuFailure("gpu.unsupported_abi", "gpu.vulkan.artifact.reflection", "entry reflection does not satisfy the supported buffer ABI"))
+        }
+        if not owner.physicalValid() {
+            owner.release(); return Err<GpuVulkanArtifact, GpuError>(gpuFailure("gpu.unsupported_abi", "gpu.vulkan.artifact.physical", "SPIR-V physical declarations disagree with entry reflection"))
+        }
+        let conformance = owner.validateOfficial()
+        if conformance.isErr() {
+            let error = conformance.unwrapErr(); conformance.releaseContainer()
+            owner.release(); return Err<GpuVulkanArtifact, GpuError>(error)
+        }
+        conformance.releaseContainer()
+        let binaryHash = gpuVkDigest(binary); let layoutHash = gpuVkDigest(reflection)
+        if binaryHash.isErr() or layoutHash.isErr() {
+            if binaryHash.isOkay() { seen_string_release_owned(binaryHash.unwrap()) } else { binaryHash.unwrapErr().release() }
+            if layoutHash.isOkay() { seen_string_release_owned(layoutHash.unwrap()) } else { layoutHash.unwrapErr().release() }
+            binaryHash.releaseContainer(); layoutHash.releaseContainer(); owner.release(); return Err<GpuVulkanArtifact, GpuError>(gpuVkPipelineOom("gpu.vulkan.artifact"))
+        }
+        let first = binaryHash.unwrap(); let second = layoutHash.unwrap(); binaryHash.releaseContainer(); layoutHash.releaseContainer()
+        seen_string_release_owned(owner.identity); owner.identity = gpuVkPipelineIdentity(first, second, entry)
+        seen_string_release_owned(first); seen_string_release_owned(second)
+        return Ok<GpuVulkanArtifact, GpuError>(owner)
+    }
+    fun word(index: Int) r: Int {
+        let n = index * 4
+        return this.binary.byteAt(n) | (this.binary.byteAt(n + 1) << 8) | (this.binary.byteAt(n + 2) << 16) | (this.binary.byteAt(n + 3) << 24)
+    }
+    fun validateOfficial() r: Result<Bool, GpuError> {
+        var target = 12 as Int32
+        if this.word(1) == 67072 { target = 13 as Int32 }
+        let status = seen_spirv_validate_binary(this.binary, target)
+        if status == (-1000 as Int32) {
+            return Err<Bool, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.vulkan.artifact", "official SPIRV-Tools validation is unavailable"))
+        }
+        if status == (-2 as Int32) { return Err<Bool, GpuError>(gpuVkPipelineOom("gpu.vulkan.artifact")) }
+        if status != (0 as Int32) { return Err<Bool, GpuError>(gpuFailure("gpu.unsupported_abi", "gpu.vulkan.artifact.conformance", "official SPIRV-Tools validation rejected the module")) }
+        return Ok<Bool, GpuError>(true)
+    }
+    /// Physical verification accepts only the compiler's scalar buffer block
+    /// ABI. Unsupported pointer/descriptor-array ABIs fail before Vulkan calls.
+    fun physicalValid() r: Bool {
+        if this.word(0) != 119734787 or (this.word(1) != 66816 and this.word(1) != 67072) or this.word(4) != 0 { return false }
+        let bound = this.word(3); if bound < 1 or bound > 65536 { return false }
+        let groups = Array<Int>(); let bindings = Array<Int>(); let storage = Array<Int>(); let types = Array<Int>(); let pointees = Array<Int>(); let blocks = Array<Int>(); let members = Array<Int>(); let strides = Array<Int>()
+        let interfaces = Array<Int>(); let values = Array<Int>(); let access = Array<Int>(); let offsets = Array<Int>()
+        var i = 0; while i < bound { offsets.push(-1); access.push(0); values.push(0); interfaces.push(0); groups.push(-1); bindings.push(-1); storage.push(-1); types.push(0); pointees.push(0); blocks.push(0); members.push(0); strides.push(0); i = i + 1 }
+        var valid = true; var selected = 0; var geometry = false; var offset = 5
+        while offset < this.binary.length() / 4 and valid {
+            let instruction = this.word(offset); let count = instruction >> 16; let opcode = instruction & 65535
+            if count < 1 or count > this.binary.length() / 4 - offset { valid = false }
+            else {
+                // Device features apply to the entire shader module, not just
+                // the reflected entry. The native provider enables no shader
+                // extensions or narrow/matrix features. Subgroup declarations
+                // are checked again against physical properties at admission.
+                if opcode == 10 { valid = false }
+                if opcode == 17 {
+                    if count != 2 { valid = false }
+                    else { let capability = this.word(offset + 1); if capability != 1 and (capability < 61 or capability > 65) { valid = false } }
+                }
+                if opcode == 14 { if count != 3 { valid = false } else if this.word(offset + 1) != 0 or this.word(offset + 2) != 1 { valid = false } }
+                if opcode == 15 and count >= 4 {
+                    var end = (offset + 3) * 4; let start = end
+                    while end < (offset + count) * 4 and this.binary.byteAt(end) != 0 { end = end + 1 }
+                    if end == (offset + count) * 4 { valid = false }
+                    else if end - start == this.entry.length() {
+                        var equal = true; var n = 0; while n < this.entry.length() { if this.binary.byteAt(start + n) != this.entry.byteAt(n) { equal = false }; n = n + 1 }
+                        if equal {
+                            if selected != 0 or this.word(offset + 1) != 5 { valid = false }; selected = this.word(offset + 2)
+                            var operand = (end + 4) / 4
+                            while operand < offset + count {
+                                let id = this.word(operand)
+                                if id < 1 or id >= bound { valid = false } else { interfaces[id] = 1 }
+                                operand = operand + 1
+                            }
+                        }
+                    }
+                }
+                if opcode == 16 and count == 6 and this.word(offset + 1) == selected and selected != 0 and this.word(offset + 2) == 17 { geometry = this.word(offset + 3) == this.x and this.word(offset + 4) == this.y and this.word(offset + 5) == this.z }
+                if (opcode == 71 or opcode == 72 or opcode == 59 or opcode == 32 or opcode == 30 or opcode == 29 or opcode == 28 or opcode == 43 or opcode == 20 or opcode == 21 or opcode == 22 or opcode == 23) and count >= 2 {
+                    var id = this.word(offset + 1); if opcode == 59 or opcode == 43 { if count < 4 { valid = false } else { id = this.word(offset + 2) } }
+                    if id < 1 or id >= bound { valid = false }
+                    else {
+                        if opcode == 71 and count >= 3 {
+                            let decoration = this.word(offset + 2)
+                            if decoration == 2 { blocks[id] = 1 }
+                            if decoration == 24 { access[id] = access[id] | 1 }; if decoration == 25 { access[id] = access[id] | 2 }
+                            if decoration == 33 or decoration == 34 or decoration == 6 {
+                                if count != 4 { valid = false }
+                                else { let value = this.word(offset + 3); if decoration == 33 { bindings[id] = value }; if decoration == 34 { groups[id] = value }; if decoration == 6 { strides[id] = value } }
+                            }
+                        }
+                        if opcode == 72 and count == 5 and this.word(offset + 2) == 0 and this.word(offset + 3) == 35 { offsets[id] = this.word(offset + 4) }
+                        if opcode == 20 and count == 2 { values[id] = 1 }
+                        if opcode == 21 and count == 4 and this.word(offset + 2) == 32 { if this.word(offset + 3) == 0 { values[id] = 3 } else if this.word(offset + 3) == 1 { values[id] = 2 } }
+                        if opcode == 22 and count == 3 and this.word(offset + 2) == 32 { values[id] = 4 }
+                        if opcode == 23 and count == 4 { types[id] = 23; members[id] = this.word(offset + 2); pointees[id] = this.word(offset + 3) }
+                        if opcode == 32 { if count != 4 { valid = false } else { storage[id] = this.word(offset + 2); pointees[id] = this.word(offset + 3); types[id] = 32 } }
+                        if opcode == 59 and count >= 4 { types[id] = this.word(offset + 1); storage[id] = this.word(offset + 3); if storage[id] == 4 and count != 4 { valid = false } }
+                        if opcode == 30 { if count == 3 { members[id] = this.word(offset + 2) }; types[id] = 30 }
+                        if opcode == 29 { if count != 3 { valid = false } else { types[id] = 29; members[id] = this.word(offset + 2) } }
+                        if opcode == 28 { if count != 4 { valid = false } else { types[id] = 28; members[id] = this.word(offset + 2); pointees[id] = this.word(offset + 3) } }
+                        if opcode == 43 and count == 4 { types[id] = 43; members[id] = this.word(offset + 1); pointees[id] = this.word(offset + 3) }
+                    }
+                }
+            }
+            offset = offset + count
+        }
+        if selected == 0 or not geometry { valid = false }
+        i = 1
+        while i < bound {
+            if types[i] == 23 { let component = members[i]; let lanes = pointees[i]; if component > 0 and component < bound and lanes >= 2 and lanes <= 4 and values[component] >= 2 { values[i] = values[component] + 16 * (lanes - 1) } }
+            if interfaces[i] == 1 and (storage[i] == 2 or storage[i] == 12) {
+                var represented = false; var j = 0
+                while j < this.bindings.length() { if groups[i] == this.bindings[j].group and bindings[i] == this.bindings[j].binding { represented = true }; j = j + 1 }
+                if not represented { valid = false }
+            }
+            i = i + 1
+        }
+        // SPIR-V 1.5/1.6 entry interfaces must include every statically used
+        // global, including Workgroup storage; validateOfficial enforces that
+        // reachability rule. Count every listed allocation conservatively.
+        // Only fixed, one-dimensional compiler arrays with ordinary 32-bit
+        // scalar/vector elements are supported. Mixed alignments are rejected:
+        // implicit Workgroup packing permits implementation-dependent padding
+        // in arbitrary variable order, which the v1 raw-byte reflection omits.
+        var shared = 0; var sharedAlignment = 0; i = 1
+        while i < bound and valid {
+            if interfaces[i] == 1 and storage[i] == 4 {
+                let pointer = types[i]
+                if pointer < 1 or pointer >= bound { valid = false }
+                else if types[pointer] != 32 or storage[pointer] != 4 { valid = false }
+                else {
+                    let array = pointees[pointer]
+                    if array < 1 or array >= bound { valid = false }
+                    else if types[array] != 28 or blocks[array] != 0 { valid = false }
+                    else {
+                        let element = members[array]; let extent = pointees[array]
+                        if element < 1 or element >= bound or extent < 1 or extent >= bound { valid = false }
+                        else if values[element] < 1 or types[extent] != 43 { valid = false }
+                        else {
+                            let extentType = members[extent]; let length = pointees[extent]
+                            let lanes = (values[element] - 1) / 16 + 1; let scalar = (values[element] - 1) % 16 + 1
+                            var stride = lanes * 4; if lanes == 3 { stride = 16 }
+                            if extentType < 1 or extentType >= bound { valid = false }
+                            else if values[extentType] != 3 or length < 1 or lanes > 4 or scalar < 1 or scalar > 4 or strides[array] != 0 { valid = false }
+                            else if sharedAlignment != 0 and sharedAlignment != stride { valid = false }
+                            else if length > (4294967295 - shared) / stride { valid = false }
+                            else { sharedAlignment = stride; shared = shared + length * stride }
+                        }
+                    }
+                }
+            }
+            i = i + 1
+        }
+        if shared != this.sharedBytes { valid = false }
+        var b = 0
+        while b < this.bindings.length() and valid {
+            let expected = this.bindings[b]; var matches = 0; i = 1
+            while i < bound {
+                if interfaces[i] == 1 and groups[i] == expected.group and bindings[i] == expected.binding {
+                    matches = matches + 1; let pointer = types[i]
+                    if pointer < 1 or pointer >= bound { valid = false }
+                    else { let block = pointees[pointer]
+                        if block < 1 or block >= bound { valid = false }
+                        else if types[pointer] != 32 or types[block] != 30 or blocks[block] != 1 or members[block] == 0 or offsets[block] != 0 { valid = false }
+                        else {
+                            var value = members[block]; var expectedValue = expected.valueType
+                            if expected.descriptorType == 6 { if storage[i] != 2 { valid = false }; if expectedValue == 1 { expectedValue = 3 } }
+                            else if storage[i] != 12 { valid = false }
+                            else if not expected.fault {
+                                let array = value
+                                if array < 1 or array >= bound { valid = false; value = 0 }
+                                else { if types[array] != 29 or strides[array] != expected.stride { valid = false }; value = members[array] }
+                                var expectedAccess = 0; if expected.typeCode / 1000 == 1 { expectedAccess = 1 }; if expected.typeCode / 1000 == 2 { expectedAccess = 2 }
+                                if access[i] != expectedAccess { valid = false }
+                            }
+                            if value < 1 or value >= bound { valid = false } else if values[value] != expectedValue { valid = false }
+                        }
+                    }
+                }; i = i + 1
+            }
+            if matches != 1 { valid = false }; b = b + 1
+        }
+        offsets.free(); access.free(); values.free(); interfaces.free(); groups.free(); bindings.free(); storage.free(); types.free(); pointees.free(); blocks.free(); members.free(); strides.free(); return valid
+    }
+}

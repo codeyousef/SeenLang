@@ -1,0 +1,74 @@
+import codegen.gpu_source.{lowerGpuSource}
+import codegen.gpu_artifact.{buildGpuArtifact}
+import codegen.gpu_artifact_manifest.{gpuArtifactManifest}
+import codegen.gpu_reflection.{reflectGpuModule}
+import codegen.gpu_options.{GpuOptions, gpuSetOption}
+import codegen.gpu_ir_model.{GpuIrValidation}
+import codegen.gpu.metal_context.{createGpuMetalFunction}
+import codegen.gpu.metal_target.{metalTargetValid, metalLanguageVersion}
+import tools.gpu_command.{gpuPrintValidation}
+import json.builder.{releaseJsonText}
+import codegen.gpu.text_buffer.{GpuTextBuffer}
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun require(value: Bool) r: Void { if not value { abort("Metal admission or ownership contract failed") } }
+fun checkSource(source: String, expected: String, selection: String) r: Void {
+    let lowered = lowerGpuSource(source, "metal-admission.seen")
+    if lowered.isErr() { gpuPrintValidation(lowered.unwrapErr()) }
+    require(lowered.isOkay()); let module = lowered.unwrap(); lowered.releaseContainer()
+    let options = GpuOptions.create(); options.backend = "metal"
+    if selection != "" { let selected = gpuSetOption(options, "entry", selection, 0); require(selected.code == ""); selected.free() }
+    let baseline = seen_memory_used_bytes(); var round = 0
+    while round < 30 {
+        let result = buildGpuArtifact(module, options)
+        if expected == "" {
+            if result.isErr() { gpuPrintValidation(result.unwrapErr()) }; require(result.isOkay())
+            let artifact = result.unwrap(); result.releaseContainer()
+            require(artifact.target == "macos13" and artifact.reflection.contains("\"target\":\"macos13\""))
+            require(artifact.binary.contains("seen_metal_entry_plain(") and not artifact.binary.contains("seen_metal_entry_unavailable("))
+            let info = gpuArtifactManifest(artifact); require(info.isOkay()); let manifest = info.unwrap(); info.releaseContainer()
+            require(manifest.contains("\"official_validation\":\"not-run\"")); releaseJsonText(manifest); artifact.release()
+        } else {
+            require(result.isErr()); let error = result.unwrapErr(); result.releaseContainer()
+            require(error.diagnostics.length() > 0 and error.diagnostics[0].code == expected)
+            require(error.diagnostics[0].functionIndex >= 0); error.release()
+        }
+        require(seen_memory_used_bytes() == baseline); round = round + 1
+    }; options.release(); module.release()
+}
+fun checkSlots(count: Int, expected: String) r: Void {
+    let validation = GpuIrValidation.create(); let builder = GpuTextBuffer.create(validation, "E_GPU_TEST_LIMIT")
+    builder.literal("@compute(1) fun plain("); var i = 0
+    while i < count {
+        if i > 0 { builder.literal(", ") }
+        builder.literal("b"); builder.number(i)
+        builder.literal(": ReadBuffer<UInt32>"); i = i + 1
+    }
+    builder.literal(") {}"); let source = builder.finish(); builder.release(); require(validation.valid); validation.release()
+    checkSource(source, expected, "")
+    let lowered = lowerGpuSource(source, "metal-reflection-slots.seen"); require(lowered.isOkay())
+    let module = lowered.unwrap(); lowered.releaseContainer(); let options = GpuOptions.create(); options.backend = "metal"
+    let reflected = reflectGpuModule(module, options)
+    if expected == "" { require(reflected.isOkay()); releaseJsonText(reflected.unwrap()) }
+    else {
+        require(reflected.isErr()); let error = reflected.unwrapErr()
+        require(error.diagnostics.length() == 1 and error.diagnostics[0].code == expected); error.release()
+    }
+    reflected.releaseContainer(); options.release(); module.release(); releaseJsonText(source)
+}
+fun main() r: Int {
+    let initial = seen_memory_used_bytes()
+    require(metalTargetValid("") and metalTargetValid("macos13") and metalTargetValid("macos14") and metalTargetValid("macos15"))
+    require(not metalTargetValid("macos12") and not metalTargetValid("macos16") and not metalTargetValid("MACOS13"))
+    require(metalLanguageVersion("macos13") == "metal3.0" and metalLanguageVersion("macos14") == "metal3.1" and metalLanguageVersion("macos15") == "metal3.2")
+    checkSource("@compute(1) fun plain() {}", "", "")
+    checkSource("@compute(1) fun plain(output: WriteBuffer<Int32>) { let a: SharedBuffer<Int32> = sharedBuffer(8192); a[0] = 7; output[0] = a[0] }", "", "")
+    checkSource("@compute(1) fun too_large(output: WriteBuffer<Int32>) { let a: SharedBuffer<Int32> = sharedBuffer(8193); output[0] = a[0] }", "E_GPU_METAL_LAYOUT", "")
+    checkSource("@compute(1) fun too_large(output: WriteBuffer<Int32>) { let a: SharedBuffer<Int32> = sharedBuffer(8191); let b: SharedBuffer<Int32> = sharedBuffer(1); output[0] = a[0] + b[0] }", "E_GPU_METAL_LAYOUT", "")
+    checkSource("@compute(64) fun unavailable(input: ReadBuffer<UInt32>) { let matrix = coopLoadA(input, 0 as UInt32, 16 as UInt32, FP32, Tile16x16x16, RowMajor) } @compute(1) fun plain() {}", "", "plain")
+    checkSource("@compute(64) fun unavailable(input: ReadBuffer<UInt32>) { let matrix = coopLoadA(input, 0 as UInt32, 16 as UInt32, FP32, Tile16x16x16, RowMajor) }", "E_GPU_METAL_CAPABILITY", "")
+    checkSlots(29, ""); checkSlots(30, "E_GPU_METAL_LAYOUT")
+    let validation = GpuIrValidation.create(); let function = createGpuMetalFunction(validation, 0, 1, 1, 1)
+    require(function.allocate(65536) == 0 and not validation.valid and validation.diagnostics[0].code == "E_GPU_METAL_LIMIT")
+    function.release(); validation.release(); require(seen_memory_used_bytes() == initial)
+    println("PASS: Metal native buffer slots padded threadgroup limits selected-entry isolation default target and bounded ownership"); return 0
+}

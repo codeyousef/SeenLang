@@ -1,0 +1,41 @@
+import str.string.{StringBuilder}
+import codegen.llvm_ir_gen.{LLVMIRGenerator}
+import codegen.ir_method_fastpath.{tryGenerateExplicitOptionMethodCallImpl}
+import codegen.ir_method_fastpath_emit.{emitPreparedOptionReceiverFastPathImpl}
+
+fun expectDefaultIr(condition: Bool, message: String) r: Void {
+    if not condition { abort(message) }
+}
+
+fun checkDefaultIr(typeName: String, llvmType: String, storageType: String) r: Void {
+    let output = StringBuilder.new()
+    let registers = Array<Int>(); registers.push(0)
+    let blocks = Array<Int>(); blocks.push(0)
+    let result = tryGenerateExplicitOptionMethodCallImpl(output, registers,
+        blocks, "unwrapOr", "%option", "Option<" + typeName + ">", "%fallback")
+    let ir = output.toString()
+    expectDefaultIr(result != "", "explicit Option default must be lowered")
+    expectDefaultIr(ir.contains(" = phi " + llvmType + " "), "explicit default must preserve payload ABI")
+    expectDefaultIr(ir.contains("getelementptr inbounds { i1, " + storageType + " }"), "default must use concrete payload storage")
+    expectDefaultIr(ir.indexOf("  br i1 ") < ir.indexOf("i32 0, i32 1\n"),
+        "absent Option payload must not be loaded before branching")
+    expectDefaultIr(not ir.contains(" = select i1 "), "default must not eagerly select an uninitialized payload")
+    let resolved = StringBuilder.new()
+    let resolvedResult = emitPreparedOptionReceiverFastPathImpl(resolved,
+        registers, blocks, "unwrapOr", "%other", "Option<" + typeName + ">", "%fallback")
+    expectDefaultIr(resolvedResult != "", "resolved Option default must be lowered")
+    expectDefaultIr(resolved.toString().contains(" = phi " + llvmType + " "),
+        "resolved receiver path must also preserve payload ABI")
+}
+
+fun main() r: Int {
+    checkDefaultIr("String", "%SeenString", "%SeenString")
+    checkDefaultIr("Bool", "i1", "i1")
+    checkDefaultIr("Float", "double", "double")
+    checkDefaultIr("Int", "i64", "i64")
+    checkDefaultIr("Int32", "i32", "i64")
+    println("PASS: typed and conditional Option default lowering")
+    return 0
+}
+
+main()

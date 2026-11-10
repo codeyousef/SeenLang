@@ -5,13 +5,17 @@ import parser.real_parser.{ParserExpressionNode}
 import codegen.ir_optimization.{getNextRegFn, getNextBlockFn}
 import codegen.ir_decl_registry.{getAsyncDeclaredRetTypeStateImpl}
 import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_call_regular_plan.{stripGenericCalleeNameImpl}
+import codegen.ir_module_function_identity.{resolveModuleFreeFunctionSymbolImpl}
 
 fun resolveAwaitExpressionResultLlvmTypeState(futureExpr: ParserExpressionNode,
     asyncFuncNames: String, asyncFuncRetTypes: String, asyncFuncCount: Int)
     r: String {
 
     if futureExpr.kind == "Call" {
-        let declType = getAsyncDeclaredRetTypeStateImpl(futureExpr.callee,
+        let functionSymbol = resolveModuleFreeFunctionSymbolImpl(
+            stripGenericCalleeNameImpl(futureExpr.callee))
+        let declType = getAsyncDeclaredRetTypeStateImpl(functionSymbol,
             asyncFuncNames, asyncFuncRetTypes, asyncFuncCount)
         if declType != "" {
             return mapTypeState(declType)

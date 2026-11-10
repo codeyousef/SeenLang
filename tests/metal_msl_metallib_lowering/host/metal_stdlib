@@ -1,0 +1,45 @@
+// Diagnostic CPU stand-ins for fixed scalar fixtures. This header is never
+// shipped with artifacts and is not an Apple SDK or a GPU synchronization model.
+#pragma once
+#include <atomic>
+#include <algorithm>
+#include <cmath>
+#include <cstdint>
+#include <cstring>
+#include <type_traits>
+#define kernel
+#define device
+#define constant const
+#define threadgroup
+namespace metal {
+using uint = std::uint32_t;
+using ulong = std::uint64_t;
+using atomic_uint = std::atomic<uint>;
+using std::atomic_fetch_or_explicit;
+using std::memory_order_relaxed;
+using std::sqrt;
+using std::rint;
+using std::min;
+template<class T, class U> T as_type(U value) {
+    static_assert(sizeof(T) == sizeof(U) && std::is_trivially_copyable_v<T>);
+    T result; std::memcpy(&result, &value, sizeof(result)); return result;
+}
+struct bool3 { bool values[3]; };
+struct uint3 {
+    uint x, y, z;
+    explicit uint3(uint value = 0): x(value), y(value), z(value) {}
+    uint3(uint a, uint b, uint c): x(a), y(b), z(c) {}
+    uint operator[](unsigned i) const { return i == 0 ? x : i == 1 ? y : z; }
+};
+struct alignas(16) uint4 {
+    uint x, y, z, w;
+    explicit uint4(uint value = 0): x(value), y(value), z(value), w(value) {}
+    uint4(uint a, uint b, uint c, uint d): x(a), y(b), z(c), w(d) {}
+    uint operator[](unsigned i) const { return i == 0 ? x : i == 1 ? y : i == 2 ? z : w; }
+};
+inline bool3 operator==(uint3 a, uint3 b) { return {{a.x == b.x, a.y == b.y, a.z == b.z}}; }
+inline bool3 operator!=(uint3 a, uint3 b) { return {{a.x != b.x, a.y != b.y, a.z != b.z}}; }
+inline bool any(bool3 value) { return value.values[0] || value.values[1] || value.values[2]; }
+enum mem_flags { mem_device = 1, mem_threadgroup = 2 };
+inline void threadgroup_barrier(int) {}
+}

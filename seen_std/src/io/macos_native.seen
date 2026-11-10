@@ -1,0 +1,6 @@
+/// Raw Darwin results, with negative Darwin errno even on unsupported hosts.
+extern "C" fun seen_macos_io_abi() r: UInt32
+extern "C" fun seen_macos_io_open(path: *UInt8, flags: UInt32, mode: UInt32) r: Int64
+extern "C" fun seen_macos_io_mode(descriptor: Int64) r: Int64
+extern "C" fun seen_macos_io_cache(descriptor: Int64, uncached: UInt32) r: Int64
+extern "C" fun seen_macos_io_transfer(descriptor: Int64, buffer: *UInt8, bytes: UInt64, offset: Int64, write: UInt32) r: Int64

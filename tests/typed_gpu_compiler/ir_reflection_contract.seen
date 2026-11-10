@@ -1,0 +1,43 @@
+import ir_fixture_support.{irRequire}
+import ir_lowering_support.{irLowerSource}
+import codegen.gpu_reflection.{reflectGpuModule, gpuReflectionHash}
+import codegen.gpu_ir_serialize.{serializeGpuIr}
+import codegen.gpu_reflection_layout.{gpuEntryRequirements}
+import codegen.gpu_options.{GpuOptions, gpuSetOption}
+import codegen.gpu_ir_model.{GpuIrModule}
+import json.builder.{releaseJsonText}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun reflectionText(borrow module: GpuIrModule, borrow options: GpuOptions) r: String {
+    let result = reflectGpuModule(module, options); irRequire(result.isOkay())
+    let text = result.unwrap(); result.releaseContainer(); return text
+}
+fun main() r: Int {
+    let emptyDigest = gpuReflectionHash(""); irRequire(emptyDigest.isOkay()); let empty = emptyDigest.unwrap(); emptyDigest.releaseContainer()
+    irRequire(empty == "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"); releaseJsonText(empty)
+    let module = irLowerSource("@device fun increment(x: Int32) r: Int32 { return x + 1 } @compute(64) fun first(input: ReadBuffer<Int32>, output: WriteBuffer<Int32>) { output[0] = increment(input[0]) } @compute(32) fun second(output: WriteBuffer<Float32>) { output[0] = 1.0 }")
+    let options = GpuOptions.create(); let expected = reflectionText(module, options)
+    let serialized = serializeGpuIr(module); irRequire(serialized.isOkay()); let canonical = serialized.unwrap(); serialized.releaseContainer()
+    println(canonical); releaseJsonText(canonical); println(expected)
+    irRequire(expected.contains("\"schema\":\"seen-gpu-reflection-v1\"") and expected.contains("\"hardware_verified\":false"))
+    irRequire(expected.indexOf("\"name\":\"first\"", 0) < expected.indexOf("\"name\":\"second\"", 0))
+    let first = gpuEntryRequirements(module, 1); let second = gpuEntryRequirements(module, 2)
+    irRequire(first.capabilities == (1 as UInt64) and second.capabilities == (513 as UInt64))
+    irRequire(first.faultBuffer and second.faultBuffer); first.free(); second.free()
+    let baseline = seen_memory_used_bytes(); var iteration = 0
+    while iteration < 100 {
+        let text = reflectionText(module, options); irRequire(text == expected); releaseJsonText(text)
+        irRequire(seen_memory_used_bytes() == baseline); iteration = iteration + 1
+    }
+    let selected = gpuSetOption(options, "entry", "second", 0); irRequire(selected.code == ""); selected.free()
+    let subset = reflectionText(module, options)
+    irRequire(not subset.contains("\"name\":\"first\"") and subset.contains("\"name\":\"second\"")); releaseJsonText(subset)
+    let missing = gpuSetOption(options, "entry", "missing", 0); irRequire(missing.code == ""); missing.free()
+    let failed = reflectGpuModule(module, options); irRequire(failed.isErr()); let error = failed.unwrapErr(); failed.releaseContainer()
+    irRequire(error.diagnostics[0].code == "E_GPU_ENTRY"); error.release(); options.clearEntries()
+    let changed = irLowerSource("@device fun increment(x: Int32) r: Int32 { return x + 2 } @compute(64) fun first(input: ReadBuffer<Int32>, output: WriteBuffer<Int32>) { output[0] = increment(input[0]) } @compute(32) fun second(output: WriteBuffer<Float32>) { output[0] = 1.0 }")
+    let different = reflectionText(changed, options); irRequire(different != expected); releaseJsonText(different)
+    releaseJsonText(expected); changed.release(); module.release(); options.release()
+    println("PASS: GPU-001D deterministic multi-entry reflection hashes reachable requirements and cleanup")
+    return 0
+}

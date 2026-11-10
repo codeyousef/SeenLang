@@ -9,7 +9,7 @@ class HashSet<T> {
     var map: HashMap<String, Bool>
     
     static fun new() -> HashSet<T> {
-        return HashSet {
+        return HashSet<T> {
             map: HashMap<String, Bool>.new()
         }
     }
@@ -24,7 +24,7 @@ class HashSet<T> {
         if mapResult.isErr() {
             return Err<HashSet<T>, AllocError>(mapResult.unwrapErr())
         }
-        let set = HashSet {
+        let set = HashSet<T> {
             map: mapResult.unwrap()
         }
         return Ok<HashSet<T>, AllocError>(set)

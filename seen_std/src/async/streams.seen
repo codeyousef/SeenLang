@@ -1,0 +1,118 @@
+import core.result.{Result, Ok, Err}
+import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext}
+import async.executor_core.{executorFailure}
+import memory.aligned_buffer.{OwnedBuffer}
+import reactor.reactor.{OwnedHandle}
+
+extern "C" fun seen_async_stream_validate(descriptor: Int64) r: Int32
+extern "C" fun seen_async_stream_read(descriptor: Int64, buffer: *Void,
+    bytes: UInt64, completed: *UInt64) r: Int32
+extern "C" fun seen_async_stream_write(descriptor: Int64, buffer: *Void,
+    bytes: UInt64, completed: *UInt64) r: Int32
+
+fun asyncStreamFailure(status: Int32, operation: String, progress: UInt64) r: AsyncError {
+    var mapped = status
+    if status == (10 as Int32) or status == (11 as Int32) { mapped = 3 as Int32 }
+    let error = executorFailure(mapped, operation, progress)
+    if status == (10 as Int32) or status == (11 as Int32) { error.retryable = false }
+    return error
+}
+
+// Owning spans avoid retaining an unchecked pointer to a caller's buffer.
+// Move the entire span into a callback job when suspending for readiness.
+@send
+@move
+class AsyncByteSpan {
+    var buffer: OwnedBuffer<UInt8>
+    var offset: UInt64
+    var length: UInt64
+
+    static fun take(buffer: OwnedBuffer<UInt8>, offset: UInt64, length: UInt64)
+        r: Result<AsyncByteSpan, AsyncError> {
+        if buffer.data == (null as *UInt8) or offset > buffer.byteLength or
+            length > buffer.byteLength - offset or length > (16777216 as UInt64) {
+            return Err<AsyncByteSpan, AsyncError>(executorFailure(1 as Int32, "stream.span", 0 as UInt64))
+        }
+        return Ok<AsyncByteSpan, AsyncError>(AsyncByteSpan{buffer: buffer, offset: offset, length: length})
+    }
+    fun release() r: Bool { this.buffer.close(); this.buffer.free(); this.free(); return true }
+}
+
+class AsyncStreamProgress {
+    var bytes: UInt64
+    var eof: Bool
+}
+
+@send
+@move
+class AsyncFdStream {
+    var descriptor: OwnedHandle
+    var maxTransferBytes: UInt64
+    var readProgress: UInt64
+    var writeProgress: UInt64
+
+    static fun take(descriptor: OwnedHandle, maxTransferBytes: UInt64)
+        r: Result<AsyncFdStream, AsyncError> {
+        if not descriptor.valid or maxTransferBytes == (0 as UInt64) or
+            maxTransferBytes > (16777216 as UInt64) {
+            return Err<AsyncFdStream, AsyncError>(executorFailure(1 as Int32, "stream.take", 0 as UInt64))
+        }
+        let status = seen_async_stream_validate(descriptor.native)
+        if status != (0 as Int32) {
+            return Err<AsyncFdStream, AsyncError>(asyncStreamFailure(status, "stream.take", 0 as UInt64))
+        }
+        return Ok<AsyncFdStream, AsyncError>(AsyncFdStream{descriptor: descriptor,
+            maxTransferBytes: maxTransferBytes, readProgress: 0 as UInt64, writeProgress: 0 as UInt64})
+    }
+    fun transfer(write: Bool, span: AsyncByteSpan, context: AsyncOperationContext)
+        r: Result<AsyncStreamProgress, AsyncError> {
+        var progress = this.readProgress
+        if write { progress = this.writeProgress }
+        let valid = validateAsyncContext(context, "stream.transfer", progress)
+        if valid.isErr() {
+            let error = valid.unwrapErr(); valid.releaseContainer()
+            return Err<AsyncStreamProgress, AsyncError>(error)
+        }
+        valid.releaseContainer()
+        if not this.descriptor.valid or span.buffer.data == (null as *UInt8) or
+            span.offset > span.buffer.byteLength or span.length > span.buffer.byteLength - span.offset {
+            return Err<AsyncStreamProgress, AsyncError>(executorFailure(1 as Int32, "stream.transfer", progress))
+        }
+        if span.length > this.maxTransferBytes or progress > (9223372036854775807 as UInt64) - span.length {
+            return Err<AsyncStreamProgress, AsyncError>(executorFailure(2 as Int32, "stream.transfer", progress))
+        }
+        if span.length == (0 as UInt64) {
+            return Ok<AsyncStreamProgress, AsyncError>(AsyncStreamProgress{bytes: 0 as UInt64, eof: false})
+        }
+        let pointer = ((span.buffer.data as UInt64) + span.offset) as *Void
+        var completed = 0 as UInt64; var status = 0 as Int32
+        if write { status = seen_async_stream_write(this.descriptor.native, pointer, span.length, &completed) }
+        else { status = seen_async_stream_read(this.descriptor.native, pointer, span.length, &completed) }
+        if completed > span.length { abort("stream OS progress exceeds checked span") }
+        if write { this.writeProgress = progress + completed }
+        else { this.readProgress = progress + completed }
+        if status != (0 as Int32) {
+            return Err<AsyncStreamProgress, AsyncError>(asyncStreamFailure(status, "stream.transfer", progress + completed))
+        }
+        return Ok<AsyncStreamProgress, AsyncError>(AsyncStreamProgress{bytes: completed,
+            eof: not write and completed == (0 as UInt64)})
+    }
+    fun read(span: AsyncByteSpan, context: AsyncOperationContext) r: Result<AsyncStreamProgress, AsyncError> {
+        return this.transfer(false, span, context)
+    }
+    fun write(span: AsyncByteSpan, context: AsyncOperationContext) r: Result<AsyncStreamProgress, AsyncError> {
+        return this.transfer(true, span, context)
+    }
+    fun intoHandle() r: OwnedHandle {
+        let descriptor = this.descriptor; this.free(); return descriptor
+    }
+    fun release() r: Result<Bool, AsyncError> {
+        let closed = this.descriptor.close()
+        if closed.isErr() {
+            closed.unwrapErr().free(); closed.releaseContainer()
+            return Err<Bool, AsyncError>(executorFailure(3 as Int32, "stream.close", 0 as UInt64))
+        }
+        closed.releaseContainer(); this.descriptor.free(); this.free()
+        return Ok<Bool, AsyncError>(true)
+    }
+}

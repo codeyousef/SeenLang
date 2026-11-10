@@ -1,0 +1,38 @@
+import bootstrap.owned_frontend.{runOwnedFrontendCompat}
+import parser.real_parser.{FunctionNode}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+var receiverCalls: Int = 0
+fun assignmentReceiver(function: FunctionNode) r: FunctionNode {
+    receiverCalls = receiverCalls + 1; return function
+}
+fun requireAssignment(value: Bool) r: Void {
+    if not value { abort("nested inline field assignment did not update original storage") }
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes()
+    let owner = runOwnedFrontendCompat("@compute(1) fun copy(output: WriteBuffer<Int32>) { output[0] = 7 }", "assignment.seen", "en")
+    requireAssignment(owner.result.success)
+    let function = owner.result.program.items[0].function
+    let original = function.params[0].paramType
+    let originalLine = function.params[0].line
+    var round = 0
+    while round < 64 {
+        function.params[0].paramType.typeName = "WriteBuffer<Int64>"
+        requireAssignment(function.params[0].paramType.typeName == "WriteBuffer<Int64>")
+        requireAssignment(not function.params[0].paramType.isNullable)
+        function.params[0].paramType.isNullable = true
+        requireAssignment(function.params[0].paramType.isNullable)
+        requireAssignment(function.params[0].paramType.typeName == "WriteBuffer<Int64>")
+        requireAssignment(function.params[0].line == originalLine)
+        requireAssignment(original.typeName == "WriteBuffer<Int32>" and not original.isNullable)
+        function.params[0].paramType = original
+        round = round + 1
+    }
+    assignmentReceiver(function).returnType.typeName = "Int32"
+    requireAssignment(receiverCalls == 1 and function.returnType.typeName == "Int32")
+    requireAssignment(not function.returnType.isNullable)
+    owner.release(); requireAssignment(seen_memory_used_bytes() == baseline)
+    println("PASS: nested inline fields update original storage preserve copies and neighbors and evaluate receivers once")
+    return 0
+}

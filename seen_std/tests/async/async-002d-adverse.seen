@@ -1,0 +1,98 @@
+import stress_fixture_support.{must, context, errorHasProgress}
+import async.structured.{AsyncError, AsyncOperationContext, seen_time_monotonic_nanos}
+import async.executor_core.{ExecutorLimits, ExecutorTaskContext, executorReleaseContext}
+import async.multithread.{MultithreadExecutor}
+import async.event_loop.{AsyncEventLoop, ReadyIoJob, AsyncIoEvent, AsyncIoRegistration}
+import reactor.reactor.{OwnedHandle, Interest}
+import core.result.{Result}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_async_readiness_live_handles() r: UInt64
+extern "C" fun seen_executor_live_threads() r: UInt64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+extern "C" fun seen_sync_live_mutexes() r: UInt64
+extern "C" fun seen_sync_live_conditions() r: UInt64
+
+fun expectError<T>(value: Result<T, AsyncError>, code: String) r: Void {
+    if not errorHasProgress<T>(value, code, 0 as UInt64) { abort("reactor adverse error mismatch") }
+}
+@send
+class TimerJob {
+    fun onEvent(event: AsyncIoEvent, descriptor: Int64, task: ExecutorTaskContext) r: Bool {
+        return event.timer and descriptor == (-1 as Int64) and not task.isCancelled()
+    }
+    fun release() r: Bool { this.free(); return true }
+}
+fun emptyHandle() r: OwnedHandle {
+    return OwnedHandle{native: -1 as Int64, owned: false, valid: false}
+}
+fun timer(loop: AsyncEventLoop<TimerJob>, ctx: AsyncOperationContext) r: AsyncIoRegistration {
+    let job = TimerJob{}
+    return must(loop.register(job, job, emptyHandle(), Interest.Readable, 0 as Int64, ctx))
+}
+fun main() r: Int {
+    let memory = seen_memory_used_bytes(); let readiness = seen_async_readiness_live_handles()
+    let threads = seen_executor_live_threads(); let atomics = seen_sync_live_atomics()
+    let mutexes = seen_sync_live_mutexes(); let conditions = seen_sync_live_conditions()
+    let ctx = context(); let cancelled = context(); cancelled.operation.cancellation = true
+    let expired = context(); expired.operation.monotonicDeadline = 0 as Int64
+    let cfg = ExecutorLimits{workers: 1, tasks: 4, queued: 4, helpDepth: 4, stackBytes: 1048576 as UInt64}
+    let executor = must(MultithreadExecutor<ReadyIoJob<TimerJob>>.create(cfg)); cfg.free()
+    expectError(AsyncEventLoop<TimerJob>.create(executor, 1048577), "async.limit")
+    let loop = must(AsyncEventLoop<TimerJob>.create(executor, 3))
+    let wake1 = must(loop.wakeHandle()); let wake2 = must(loop.wakeHandle()); let wake3 = must(loop.wakeHandle())
+    expectError(loop.wakeHandle(), "async.limit"); expectError(loop.release(), "async.unavailable")
+    must(loop.wakeup()); must(wake1.wakeup()); wake1.release(); wake2.release(); wake3.release()
+    expectError(loop.pollOnce(0, ctx), "async.limit"); expectError(loop.pollOnce(4, ctx), "async.limit")
+    expectError(loop.pollOnce(1, cancelled), "async.cancelled")
+    expectError(loop.pollOnce(1, expired), "async.timeout")
+    let job = TimerJob{}; let handle = emptyHandle()
+    expectError(loop.register(job, job, handle, Interest.Readable, 0 as Int64, cancelled), "async.cancelled")
+    expectError(loop.register(job, job, handle, Interest.Readable, -2 as Int64, ctx), "async.invalid")
+    expectError(loop.register(job, job, handle, Interest.Readable, -1 as Int64, ctx), "async.invalid")
+    expectError(loop.register(job, job, handle, Interest.Completion, 0 as Int64, ctx), "async.invalid")
+    let wrong = TimerJob{}
+    expectError(loop.register(job, wrong, handle, Interest.Readable, 0 as Int64, ctx), "async.invalid")
+    wrong.release(); job.release(); handle.free()
+    let invalid = AsyncIoRegistration{slot: -1, generation: 0 as UInt64}
+    if loop.matches(invalid) { abort("negative slot accepted") }
+    expectError(loop.cancel(invalid), "async.invalid"); invalid.slot = 3
+    if loop.matches(invalid) { abort("out-of-range slot accepted") }
+    invalid.free()
+    let first = timer(loop, ctx); let middle = timer(loop, ctx); let last = timer(loop, ctx)
+    must(loop.pollOnce(3, ctx)); must(loop.cancel(middle)); middle.free()
+    must(loop.cancel(first)); first.free(); must(loop.cancel(last)); last.free()
+    expectError(loop.dispatchNext(), "async.unavailable")
+    let stale = timer(loop, ctx); must(loop.cancel(stale))
+    let current = timer(loop, ctx)
+    if loop.matches(stale) or not loop.matches(current) { abort("reactor generation reuse failed") }
+    expectError(loop.cancel(stale), "async.invalid"); stale.free()
+    // A later caller cancellation must not mutate the owned registration snapshot.
+    ctx.operation.cancellation = true
+    let wait = context(); must(loop.pollOnce(3, wait))
+    let joined = must(loop.dispatchNext()); let completed = must(joined.join(wait))
+    completed.release(); joined.free(); current.free(); ctx.operation.cancellation = false
+    // Advance only the policy's explicit clock input to the accepted deadline.
+    // This deterministically tests expiry without sleeping or changing OS time.
+    let deadline = seen_time_monotonic_nanos() + (5000000000 as Int64)
+    ctx.operation.monotonicDeadline = deadline
+    let dueJob = TimerJob{}; let due = must(loop.register(dueJob, dueJob, emptyHandle(),
+        Interest.Readable, deadline, ctx))
+    if loop.expire(deadline) != (7 as Int32) or loop.matches(due) { abort("operation expiry retained work") }
+    due.free(); ctx.operation.monotonicDeadline = 9223372036854775807 as Int64
+    must(loop.close()); must(loop.close())
+    expectError(loop.wakeHandle(), "async.invalid"); expectError(loop.wakeup(), "async.invalid")
+    expectError(loop.pollOnce(1, ctx), "async.limit"); expectError(loop.dispatchNext(), "async.unavailable")
+    let retained = TimerJob{}; let retainedHandle = emptyHandle()
+    expectError(loop.register(retained, retained, retainedHandle, Interest.Readable, 0 as Int64, ctx), "async.invalid")
+    retained.release(); retainedHandle.free(); must(loop.release()); must(executor.close())
+    expectError(AsyncEventLoop<TimerJob>.create(executor, 1), "async.invalid")
+    must(executor.release()); executorReleaseContext(ctx); executorReleaseContext(cancelled)
+    executorReleaseContext(expired); executorReleaseContext(wait)
+    if seen_memory_used_bytes() != memory or seen_async_readiness_live_handles() != readiness or
+        seen_executor_live_threads() != threads or seen_sync_live_atomics() != atomics or
+        seen_sync_live_mutexes() != mutexes or seen_sync_live_conditions() != conditions {
+        abort("reactor adverse paths leaked resources")
+    }
+    println("PASS: ASYNC-002D adverse admission, snapshots, stale handles and expiry")
+    return 0
+}

@@ -51,6 +51,14 @@ printf '%s\n' 'int main(void) { return 0; }' | clang \
     -x c - -o "$TMP_DIR/instrumentation" -fuse-ld=lld -fprofile-instr-generate \
     -fcoverage-mapping -fsanitize=undefined -fno-omit-frame-pointer -g ||
     fail 'pinned LLVM instrumentation runtimes cannot compile and link'
+[ -f /usr/aarch64-linux-gnu/include/stdint.h ] &&
+    [ -f /usr/aarch64-linux-gnu/lib/crt1.o ] || fail 'ARM64 libc sysroot is unavailable'
+printf '%s\n' '#include <stdint.h>' \
+    'uint32_t seen_ci_arm64(uint32_t value) { return value + 1; }' | \
+    clang --target=aarch64-unknown-linux-gnu --sysroot=/usr/aarch64-linux-gnu \
+    -x c -c - -o "$TMP_DIR/arm64.o" || fail 'ARM64 libc sysroot cannot compile a target object'
+LC_ALL=C readelf --file-header "$TMP_DIR/arm64.o" |
+    grep -Eq 'Machine:[[:space:]]+AArch64' || fail 'ARM64 probe produced the wrong object architecture'
 needs_sdl3_bridge=0
 # The frozen seeds carry an unused SDL3 dependency. Admit this loader-only
 # bridge only if neither imports SDL symbols; the rebuilt linker drops it.

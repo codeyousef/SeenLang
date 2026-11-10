@@ -1,0 +1,192 @@
+import core.option.{Option, Some, None}
+import core.result.{Result, Ok, Err}
+import sync.contracts.{Send}
+import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext}
+import async.executor_core.{ExecutorCore, ExecutorJob, ExecutorOwnedJob, executorFailure, executorDropWitness,
+    executorCopyContext, executorReleaseSnapshot, EXECUTOR_FOREVER}
+import async.multithread.{ExecutorJoinHandle, executorSubmitWitness}
+import async.sync_domain.{asyncSyncAttach, asyncSyncDetach}
+
+// Coordinator-owned group. Its children run concurrently; group mutation is
+// exclusive to the owner. Results are returned in submission order.
+@move
+class TaskGroup<T: Send + ExecutorJob> {
+    var core: ExecutorCore
+    var handles: Array<Option<ExecutorJoinHandle<T>>>
+    var count: Int
+    var limit: Int
+    var cleanup: AsyncOperationContext
+    var cancelled: Bool
+    var sealed: Bool
+    var closed: Bool
+
+    static fun create(core: ExecutorCore, limit: Int, context: AsyncOperationContext)
+        r: Result<TaskGroup<T>, AsyncError> {
+        let valid = validateAsyncContext(context, "task_group.create", 0 as UInt64)
+        if valid.isErr() {
+            let error = valid.unwrapErr(); valid.releaseContainer()
+            return Err<TaskGroup<T>, AsyncError>(error)
+        }
+        valid.releaseContainer()
+        if limit <= 0 or limit > core.limits.tasks or limit > context.limits.maxFanOut {
+            return Err<TaskGroup<T>, AsyncError>(executorFailure(2 as Int32,
+                "task_group.create", 0 as UInt64))
+        }
+        if core.ownsWorker() {
+            return Err<TaskGroup<T>, AsyncError>(executorFailure(1 as Int32,
+                "task_group.create", 0 as UInt64))
+        }
+        let status = asyncSyncAttach(core)
+        if status != (0 as Int32) {
+            return Err<TaskGroup<T>, AsyncError>(executorFailure(status, "task_group.create", 0 as UInt64))
+        }
+        let handles = Array<Option<ExecutorJoinHandle<T>>>()
+        var i = 0
+        while i < limit { handles.push(None<ExecutorJoinHandle<T>>()); i = i + 1 }
+        let cleanup = executorCopyContext(context)
+        cleanup.operation.cancellation = false
+        cleanup.operation.monotonicDeadline = EXECUTOR_FOREVER
+        return Ok<TaskGroup<T>, AsyncError>(TaskGroup<T>{core: core,
+            handles: handles, count: 0, limit: limit, cleanup: cleanup,
+            cancelled: false, sealed: false, closed: false})
+    }
+
+    fun spawn(task: T, witness: dyn ExecutorJob, context: AsyncOperationContext) r: Result<Bool, AsyncError> {
+        if this.sealed or this.closed or this.count >= this.limit {
+            var status = 2 as Int32
+            if this.sealed or this.closed { status = 1 as Int32 }
+            executorDropWitness(witness)
+            return Err<Bool, AsyncError>(executorFailure(status, "task_group.spawn", this.count as UInt64))
+        }
+        let submitted = executorSubmitWitness<T>(this.core, task, witness, context, 0)
+        if submitted.isErr() {
+            let error = submitted.unwrapErr(); submitted.releaseContainer()
+            return Err<Bool, AsyncError>(error)
+        }
+        let handle = submitted.unwrap(); submitted.releaseContainer()
+        this.handles[this.count].free()
+        this.handles[this.count] = Some<ExecutorJoinHandle<T>>(handle)
+        this.count = this.count + 1
+        return Ok<Bool, AsyncError>(true)
+    }
+
+    fun cancel() r: Void {
+        this.cancelled = true
+        this.sealed = true
+        var i = 0
+        while i < this.count {
+            if this.handles[i].isSome() {
+                let result = this.handles[i].unwrap().cancel()
+                if result.isErr() { result.unwrapErr().free() }
+                result.releaseContainer()
+            }
+            i = i + 1
+        }
+    }
+
+    fun barrier(context: AsyncOperationContext) r: Result<Array<T>, AsyncError> {
+        let drained = this.barrierOwned(context)
+        if drained.isErr() { let error = drained.unwrapErr(); drained.releaseContainer(); return Err<Array<T>, AsyncError>(error) }
+        let owners = drained.unwrap(); drained.releaseContainer(); let values = Array<T>(); var i = 0
+        while i < owners.length() { values.push(owners[i].take()); i = i + 1 }; owners.free()
+        return Ok<Array<T>, AsyncError>(values)
+    }
+
+    fun barrierOwned(context: AsyncOperationContext) r: Result<Array<ExecutorOwnedJob<T>>, AsyncError> {
+        if this.closed {
+            return Err<Array<ExecutorOwnedJob<T>>, AsyncError>(executorFailure(1 as Int32,
+                "task_group.barrier", 0 as UInt64))
+        }
+        this.sealed = true
+        let values = Array<ExecutorOwnedJob<T>>()
+        var firstError = None<AsyncError>()
+        let valid = validateAsyncContext(context, "task_group.barrier", 0 as UInt64)
+        if valid.isErr() {
+            firstError.free(); firstError = Some<AsyncError>(valid.unwrapErr())
+            this.cancel()
+        }
+        valid.releaseContainer()
+        if this.cancelled and firstError.isNone() {
+            firstError.free(); firstError = Some<AsyncError>(executorFailure(
+                9 as Int32, "task_group.barrier", 0 as UInt64))
+        }
+        var i = 0
+        while i < this.count {
+            let handle = this.handles[i].unwrap()
+            var joinContext = context
+            if firstError.isSome() { joinContext = this.cleanup }
+            let joined = handle.joinOwned(joinContext)
+            if joined.isErr() {
+                let error = joined.unwrapErr()
+                if firstError.isNone() {
+                    error.progress = values.length() as UInt64
+                    firstError.free(); firstError = Some<AsyncError>(error)
+                    this.cancel()
+                } else { error.free() }
+                joined.releaseContainer()
+                // A cancelled wait keeps its join owner. Drain cooperatively
+                // with an uncancelled cleanup context before returning error.
+                if handle.active {
+                    let drained = handle.joinOwned(this.cleanup)
+                    if drained.isOkay() {
+                        if not drained.unwrap().release() { abort("task group job cleanup failed") }
+                    } else { drained.unwrapErr().free() }
+                    drained.releaseContainer()
+                    if handle.active { abort("task group could not drain an owned job") }
+                }
+            } else {
+                let value = joined.unwrap(); joined.releaseContainer()
+                if firstError.isSome() {
+                    if not value.release() { abort("task group job cleanup failed") }
+                } else { values.push(value) }
+            }
+            handle.free()
+            this.handles[i].free()
+            this.handles[i] = None<ExecutorJoinHandle<T>>()
+            i = i + 1
+        }
+        this.count = 0
+        this.closed = true
+        if firstError.isSome() {
+            i = 0
+            while i < values.length() {
+                if not values[i].release() { abort("task group job cleanup failed") }
+                i = i + 1
+            }
+            values.free()
+            let error = firstError.unwrap(); firstError.free()
+            return Err<Array<ExecutorOwnedJob<T>>, AsyncError>(error)
+        }
+        firstError.free()
+        return Ok<Array<ExecutorOwnedJob<T>>, AsyncError>(values)
+    }
+
+    fun close() r: Result<Bool, AsyncError> {
+        if not this.closed {
+            this.cancel()
+            let drained = this.barrierOwned(this.cleanup)
+            if drained.isOkay() {
+                let values = drained.unwrap()
+                var i = 0
+                while i < values.length() {
+                    if not values[i].release() { abort("task group job cleanup failed") }
+                    i = i + 1
+                }
+                values.free()
+            } else { drained.unwrapErr().free() }
+            drained.releaseContainer()
+        }
+        return Ok<Bool, AsyncError>(true)
+    }
+
+    fun release() r: Result<Bool, AsyncError> {
+        let closed = this.close(); closed.releaseContainer()
+        var i = 0
+        while i < this.handles.length() { this.handles[i].free(); i = i + 1 }
+        this.handles.free()
+        executorReleaseSnapshot(this.cleanup)
+        asyncSyncDetach(this.core)
+        this.free()
+        return Ok<Bool, AsyncError>(true)
+    }
+}

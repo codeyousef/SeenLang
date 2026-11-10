@@ -1,0 +1,84 @@
+/// Semantic rules for explicit packed-word conversions and subgroup matrix
+/// fragments. All operand identities have already passed definition/use checks.
+import codegen.gpu_ir_model.{GpuIrFunction, GpuIrInstruction, GpuIrValidation}
+import codegen.gpu_ir_facts.{GpuIrFacts, gpuIrBufferResource, gpuIrResourceReadable, gpuIrResourceWritable}
+import codegen.gpu_ir_value_rules.{gpuIrOperandType}
+import codegen.gpu_ir_ops.{GPU_IR_INT, GPU_IR_UNPACK, GPU_IR_PACK, GPU_IR_SPECIALIZE,
+    GPU_IR_COOP_LOAD, GPU_IR_COOP_MMA, GPU_IR_COOP_STORE, GPU_IR_COOP_FILL}
+import codegen.gpu_precision_formats.{gpuPrecisionValid, gpuPrecisionValueType, GPU_FORMAT_MXFP4}
+import codegen.gpu_matrix_types.{gpuMatrixTypeValid, gpuMatrixType, gpuMatrixRole, gpuMatrixFormat,
+    gpuMatrixShape, gpuMatrixAccumulatorFormat}
+import typechecker.gpu_types.{gpuTypeValue}
+
+fun gpuIrPackedTypesValid(borrow op: GpuIrInstruction, borrow facts: GpuIrFacts) r: Bool {
+    if not gpuPrecisionValid(op.immediate) { return false }
+    var operands = 2; if op.opcode == GPU_IR_PACK { operands = 3 }
+    if op.immediate == GPU_FORMAT_MXFP4 { operands = operands + 1 }
+    if op.operands.length() != operands or gpuIrOperandType(op, facts, 0) != 3 or gpuIrOperandType(op, facts, 1) != 3 { return false }
+    if op.opcode == GPU_IR_UNPACK {
+        if op.typeCode != gpuPrecisionValueType(op.immediate) { return false }
+    } else if op.opcode == GPU_IR_PACK {
+        if op.typeCode != 3 or gpuIrOperandType(op, facts, 2) != gpuPrecisionValueType(op.immediate) { return false }
+    } else { return false }
+    if op.immediate == GPU_FORMAT_MXFP4 { return gpuIrOperandType(op, facts, operands - 1) == 3 }; return true
+}
+fun gpuIrSpecializationTypesValid(borrow function: GpuIrFunction, borrow op: GpuIrInstruction, borrow facts: GpuIrFacts) r: Bool {
+    if op.immediate < 0 or op.immediate > 65535 or (op.typeCode != 2 and op.typeCode != 3) { return false }
+    var i = 0
+    while i < 3 {
+        let identity = op.operands[i]
+        let definition = function.blocks[facts.registerBlocks[identity]].instructions[facts.registerInstructions[identity]]
+        if definition.opcode != GPU_IR_INT or definition.typeCode != op.typeCode { return false }; i = i + 1
+    }
+    let valueId = op.operands[0]; let lowId = op.operands[1]; let highId = op.operands[2]
+    let value = function.blocks[facts.registerBlocks[valueId]].instructions[facts.registerInstructions[valueId]].text.toInt()
+    let low = function.blocks[facts.registerBlocks[lowId]].instructions[facts.registerInstructions[lowId]].text.toInt()
+    let high = function.blocks[facts.registerBlocks[highId]].instructions[facts.registerInstructions[highId]].text.toInt()
+    return low <= value and value <= high
+}
+fun gpuIrCooperativeTypesValid(borrow op: GpuIrInstruction, borrow facts: GpuIrFacts) r: Bool {
+    if op.opcode == GPU_IR_COOP_LOAD {
+        if not gpuMatrixTypeValid(op.typeCode) or gpuMatrixRole(op.typeCode) > 1 or (op.immediate != 1 and op.immediate != 2) { return false }
+        let resource = gpuIrOperandType(op, facts, 0)
+        if not gpuIrBufferResource(resource) or not gpuIrResourceReadable(resource) or gpuTypeValue(resource) != 3 or
+            gpuIrOperandType(op, facts, 1) != 3 or gpuIrOperandType(op, facts, 2) != 3 { return false }
+        if gpuMatrixFormat(op.typeCode) != GPU_FORMAT_MXFP4 { return op.operands.length() == 3 }
+        if op.operands.length() != 5 { return false }
+        let scale = gpuIrOperandType(op, facts, 3)
+        return gpuIrBufferResource(scale) and gpuIrResourceReadable(scale) and gpuTypeValue(scale) == 3 and gpuIrOperandType(op, facts, 4) == 3
+    }
+    if op.opcode == GPU_IR_COOP_FILL {
+        return gpuMatrixTypeValid(op.typeCode) and gpuMatrixRole(op.typeCode) == 2 and op.immediate == 0 and
+            gpuIrOperandType(op, facts, 0) == gpuPrecisionValueType(gpuMatrixFormat(op.typeCode))
+    }
+    if op.opcode == GPU_IR_COOP_MMA {
+        let left = gpuIrOperandType(op, facts, 0); let right = gpuIrOperandType(op, facts, 1); let accumulator = gpuIrOperandType(op, facts, 2)
+        if not gpuMatrixTypeValid(left) or not gpuMatrixTypeValid(right) or not gpuMatrixTypeValid(accumulator) or op.immediate != 0 { return false }
+        return gpuMatrixRole(left) == 0 and gpuMatrixRole(right) == 1 and gpuMatrixRole(accumulator) == 2 and
+            gpuMatrixShape(left) == gpuMatrixShape(right) and gpuMatrixShape(left) == gpuMatrixShape(accumulator) and
+            gpuMatrixFormat(left) == gpuMatrixFormat(right) and op.typeCode == accumulator and
+            accumulator == gpuMatrixType(gpuMatrixShape(left), gpuMatrixAccumulatorFormat(gpuMatrixFormat(left)), 2)
+    }
+    if op.opcode == GPU_IR_COOP_STORE {
+        let matrix = gpuIrOperandType(op, facts, 0); let resource = gpuIrOperandType(op, facts, 1)
+        return gpuMatrixTypeValid(matrix) and gpuMatrixRole(matrix) == 2 and gpuIrBufferResource(resource) and
+            gpuIrResourceWritable(resource) and gpuTypeValue(resource) == gpuPrecisionValueType(gpuMatrixFormat(matrix)) and
+            gpuIrOperandType(op, facts, 2) == 3 and gpuIrOperandType(op, facts, 3) == 3 and (op.immediate == 1 or op.immediate == 2)
+    }
+    return false
+}
+fun gpuIrPrecisionTypesValid(borrow function: GpuIrFunction, borrow op: GpuIrInstruction, borrow facts: GpuIrFacts) r: Bool {
+    if op.opcode == GPU_IR_UNPACK or op.opcode == GPU_IR_PACK { return gpuIrPackedTypesValid(op, facts) }
+    if op.opcode == GPU_IR_SPECIALIZE { return gpuIrSpecializationTypesValid(function, op, facts) }
+    return gpuIrCooperativeTypesValid(op, facts)
+}
+fun gpuIrRecordSpecialization(ids: Array<Int>, id: Int, validation: GpuIrValidation, functionIndex: Int, blockIndex: Int, opIndex: Int) r: Bool {
+    if ids.length() >= 64 {
+        validation.reject("E_GPU_SPECIALIZATION", "GPU module exceeds its specialization count ceiling", functionIndex, blockIndex, opIndex); return false
+    }
+    var i = 0
+    while i < ids.length() {
+        if ids[i] == id { validation.reject("E_GPU_SPECIALIZATION", "GPU specialization identities must be unique across the module", functionIndex, blockIndex, opIndex); return false }; i = i + 1
+    }
+    ids.push(id); return true
+}

@@ -1,0 +1,13 @@
+// Direct OS readiness normalization. Seen owns the event buffer and identities.
+extern "C" fun seen_async_readiness_create(queue: *Int64, wake: *Int64) r: Int32
+extern "C" fun seen_async_readiness_register(queue: Int64, descriptor: Int64,
+    flags: Int32, identity: UInt64) r: Int32
+extern "C" fun seen_async_readiness_deregister(queue: Int64, descriptor: Int64) r: Int32
+extern "C" fun seen_async_readiness_wakeup(wake: Int64) r: Int32
+extern "C" fun seen_async_readiness_consume_wake(wake: Int64) r: Int32
+extern "C" fun seen_async_readiness_poll(queue: Int64, events: *Void, eventBytes: UInt64,
+    maximum: UInt64, timeoutNanos: Int64, count: *UInt64) r: Int32
+extern "C" fun seen_async_readiness_event(events: *Void, eventBytes: UInt64,
+    index: UInt64, identity: *UInt64, flags: *Int32) r: Int32
+extern "C" fun seen_async_readiness_close(queue: *Int64, wake: *Int64) r: Int32
+extern "C" fun seen_async_readiness_live_handles() r: UInt64

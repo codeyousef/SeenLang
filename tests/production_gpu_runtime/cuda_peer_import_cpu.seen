@@ -1,0 +1,6 @@
+import compute.cuda_peer.{GpuCudaPeerCapability, GpuCudaPeerLink}
+import compute.cuda_device_transfer.{GpuCudaDeviceTransfer}
+fun main() r: Int {
+    println("PASS: unused CUDA peer declarations retain CPU-only execution")
+    return 0
+}

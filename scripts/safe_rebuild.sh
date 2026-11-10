@@ -10,6 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 ARTIFACT_ROOT_SCRIPT="$SCRIPT_DIR/artifact_root.sh"
 SERIAL_AUXILIARY_SCRIPT="$SCRIPT_DIR/serial_auxiliary_env.sh"
+MEMORY_BUDGET_SCRIPT="$SCRIPT_DIR/memory_budget.sh"
 SAFE_REBUILD_ORIGINAL_ARGS=("$@")
 
 # Colors for output
@@ -53,15 +54,27 @@ BUILD_TRACE_COMMON="$SCRIPT_DIR/build_trace_common.sh"
 REBUILD_TIER="full"
 CLEAN_CACHE=0
 ARTIFACT_PREFLIGHT_ONLY=0
+REGRESSION_SCRIPT=""
+REBUILD_TIER_EXPLICIT=0
 PACKAGE_CLIENT_BUILD_OUTPUT="$REPO_ROOT/target/seen-build/package-client/seen-pkg"
 SOURCE_PACKAGE_CLIENT=""
 SOURCE_PACKAGE_CLIENT_VERSION=""
+BUILDER_PACKAGE_CLIENT=""
 REBUILD_SCOPE_EVIDENCE_FILE=""
+BOOTSTRAP_CANDIDATE_ONLY=0
+CANDIDATE_STAGE2_SMOKE_OK=0
+CANDIDATE_STAGE3_SMOKE_OK=0
 
 if [ -f "$BUILD_TRACE_COMMON" ]; then
     # shellcheck source=scripts/build_trace_common.sh
     source "$BUILD_TRACE_COMMON"
 fi
+if [ ! -f "$MEMORY_BUDGET_SCRIPT" ] || [ -L "$MEMORY_BUDGET_SCRIPT" ]; then
+    echo "ERROR: memory-budget helper is missing or unsafe" >&2
+    exit 126
+fi
+# shellcheck source=scripts/memory_budget.sh
+source "$MEMORY_BUDGET_SCRIPT"
 
 safe_rebuild_usage() {
     echo "Usage: $0 [--tier quick|verify|full] [--clean-cache] [--artifact-preflight] [--help]"
@@ -70,9 +83,14 @@ safe_rebuild_usage() {
     echo "  quick   Cache-enabled developer rebuild to compiler_seen/target/seen-dev; smoke only."
     echo "  verify  Cache-enabled production rebuild; targeted checks; install after verification."
     echo "  full    Cold staged bootstrap verification. This is the default for compatibility."
+    echo "  --regression-script PATH  Run a focused repository script with a verified exact-version builder and scope-attested serializer; no compiler installation or bootstrap certification."
+    echo "  --bootstrap-candidate  Export a fresh portable Linux Stage3 candidate without acceptance, installation or release certification; full tier only."
     echo ""
     echo "Artifacts default to <repository>/.seen/agent-tools. Set SEEN_ARTIFACT_ROOT"
     echo "to another Git-ignored path inside the repository to override that location."
+    echo "SEEN_PACKAGE_CLIENT selects the current-source helper for newly built compilers."
+    echo "SEEN_STAGE_BUILDER_PACKAGE_CLIENT optionally pairs an existing stage builder"
+    echo "with its own same-release helper during a package-map format transition."
 }
 
 while [ "$#" -gt 0 ]; do
@@ -83,10 +101,12 @@ while [ "$#" -gt 0 ]; do
                 exit 1
             fi
             REBUILD_TIER="$2"
+            REBUILD_TIER_EXPLICIT=1
             shift 2
             ;;
         --tier=*)
             REBUILD_TIER="${1#--tier=}"
+            REBUILD_TIER_EXPLICIT=1
             shift
             ;;
         --clean-cache)
@@ -96,6 +116,22 @@ while [ "$#" -gt 0 ]; do
         --artifact-preflight)
             ARTIFACT_PREFLIGHT_ONLY=1
             shift
+            ;;
+        --bootstrap-candidate)
+            [ "$BOOTSTRAP_CANDIDATE_ONLY" = 0 ] || {
+                echo "ERROR: duplicate --bootstrap-candidate option" >&2
+                exit 2
+            }
+            BOOTSTRAP_CANDIDATE_ONLY=1
+            shift
+            ;;
+        --regression-script)
+            [ "$#" -ge 2 ] && [ -n "$2" ] && [ -z "$REGRESSION_SCRIPT" ] || {
+                echo "ERROR: --regression-script requires one repository script" >&2
+                exit 2
+            }
+            REGRESSION_SCRIPT=$2
+            shift 2
             ;;
         -h|--help)
             safe_rebuild_usage
@@ -116,6 +152,51 @@ case "$REBUILD_TIER" in
         exit 1
         ;;
 esac
+
+if [ "$BOOTSTRAP_CANDIDATE_ONLY" = 1 ]; then
+    if [ "$REBUILD_TIER" != full ] || [ -n "$REGRESSION_SCRIPT" ] ||
+        [ "$ARTIFACT_PREFLIGHT_ONLY" != 0 ] ||
+        [ "${SEEN_STOP_AFTER_STAGE2_SMOKE:-0}" != 0 ]; then
+        echo "ERROR: bootstrap candidate requires the complete staged full bootstrap" >&2
+        exit 2
+    fi
+    if [ "$(uname -s)" != Linux ] || [ "$(uname -m)" != x86_64 ] ||
+        [ "${SEEN_RELEASE_CPU_BASELINE:-}" != x86-64 ]; then
+        echo "ERROR: bootstrap candidate requires the portable Linux x86-64 baseline" >&2
+        exit 126
+    fi
+    [ -f "$SCRIPT_DIR/ci_bootstrap_candidate.py" ] &&
+        [ ! -L "$SCRIPT_DIR/ci_bootstrap_candidate.py" ] || {
+        echo "ERROR: bootstrap candidate validator is missing or unsafe" >&2
+        exit 126
+    }
+    export SEEN_REQUIRE_STAGE3=1 SEEN_DISABLE_IR_RECOVERY=1
+fi
+
+if [ -n "$REGRESSION_SCRIPT" ]; then
+    case "$REGRESSION_SCRIPT" in
+        /*) ;;
+        *) REGRESSION_SCRIPT="$REPO_ROOT/$REGRESSION_SCRIPT" ;;
+    esac
+    case "$REGRESSION_SCRIPT" in
+        "$REPO_ROOT"/*.sh) ;;
+        *) echo "ERROR: regression script must be a repository shell script" >&2; exit 2 ;;
+    esac
+    [ -f "$REGRESSION_SCRIPT" ] && [ ! -L "$REGRESSION_SCRIPT" ] || {
+        echo "ERROR: regression script is missing or a symlink" >&2
+        exit 2
+    }
+    regression_parent=$(cd -P -- "${REGRESSION_SCRIPT%/*}" && pwd -P) || exit 2
+    [ "$regression_parent/${REGRESSION_SCRIPT##*/}" = "$REGRESSION_SCRIPT" ] || {
+        echo "ERROR: regression script traverses a symlink or noncanonical path" >&2
+        exit 2
+    }
+    [ "$ARTIFACT_PREFLIGHT_ONLY" = 0 ] && [ "$CLEAN_CACHE" = 0 ] && [ "$REBUILD_TIER_EXPLICIT" = 0 ] || {
+        echo "ERROR: focused regressions cannot select a rebuild tier, clean caches or use artifact preflight" >&2
+        exit 2
+    }
+    REBUILD_TIER=quick
+fi
 
 if [ ! -f "$ARTIFACT_ROOT_SCRIPT" ]; then
     echo -e "${RED:-}ERROR: missing artifact-root helper: $ARTIFACT_ROOT_SCRIPT${NC:-}" >&2
@@ -538,7 +619,7 @@ safe_rebuild_cleanup() {
     if declare -F seen_build_trace_summary >/dev/null 2>&1; then
         seen_build_trace_summary
     fi
-    if [ "$status" -eq 0 ] && [ -n "$REBUILD_WORK_ROOT" ] &&
+    if [ "$status" -eq 0 ] && [ -z "$REGRESSION_SCRIPT" ] && [ -n "$REBUILD_WORK_ROOT" ] &&
         [ -n "$REBUILD_ARTIFACT_SCOPE" ]; then
         case "$REBUILD_WORK_ROOT" in
             "$REBUILD_ARTIFACT_SCOPE"/run.*)
@@ -1702,7 +1783,29 @@ preserve_stage2_failure_artifacts() {
         cp "$snapshot_dir"/seen_module_* "$preserve_dir/" 2>/dev/null || true
     fi
     cp /tmp/seen_module_* "$preserve_dir/" 2>/dev/null || true
+    preserve_stage2_diagnostics
     echo -e "${YELLOW}Preserved Stage2 failure artifacts: $preserve_dir${NC}"
+}
+
+# Private /tmp is destroyed with the build namespace. Keep bounded diagnostics
+# and the rejected module in the ignored run directory for CI artifact upload.
+preserve_stage2_diagnostics() {
+    local diagnostics_dir candidate bytes retained=0
+    diagnostics_dir=$(mktemp -d "$REBUILD_WORK_ROOT/stage2-failure.XXXXXX") || return 0
+    tail -c 262144 /tmp/safe_rebuild_stage2.log >"$diagnostics_dir/stage2.log" 2>/dev/null || true
+    tail -c 65536 /tmp/safe_rebuild_stage2.guard.log >"$diagnostics_dir/guard.log" 2>/dev/null || true
+    while IFS= read -r candidate; do
+        case "$candidate" in
+            "$COMPILER_ARTIFACT_ROOT"/seen_compile_*/seen_module_[0-9]*.ll) ;;
+            *) continue ;;
+        esac
+        [ -f "$candidate" ] && [ ! -L "$candidate" ] || continue
+        bytes=$(wc -c <"$candidate")
+        [ "$bytes" -le 33554432 ] || continue
+        cp -- "$candidate" "$diagnostics_dir/$(basename -- "$candidate")" || true
+        retained=$((retained + 1))
+        [ "$retained" -lt 8 ] || break
+    done < <(sed -nE 's#^.*llvm-as: ([^:]+[.]ll):[0-9]+:.*#\1#p' /tmp/safe_rebuild_stage2.log 2>/dev/null)
 }
 
 is_positive_integer() {
@@ -1992,6 +2095,10 @@ if [ -n "$RELEASE_CPU_BASELINE" ]; then
     export SEEN_RELEASE_CPU_BASELINE="$RELEASE_CPU_BASELINE"
     echo -e "${YELLOW}Release CPU baseline enabled: $RELEASE_CPU_BASELINE.${NC}"
 fi
+MEMORY_PAGE_BYTES=$(getconf PAGESIZE) || {
+    echo "ERROR: cannot read the kernel memory page size" >&2
+    exit 126
+}
 
 if [ "${SEEN_DISABLE_MEMORY_GUARD:-0}" != "1" ]; then
     if ! is_positive_integer "$SYSTEM_MEMORY_KB"; then
@@ -2050,6 +2157,13 @@ if [ "${SEEN_DISABLE_MEMORY_GUARD:-0}" != "1" ]; then
     MEMORY_GUARD_CGROUP_STOP_KB="${SEEN_GUARD_CGROUP_STOP_KB:-$MEMORY_GUARD_RSS_KB}"
     if [ "$MEMORY_GUARD_CGROUP_STOP_KB" -lt 1 ]; then
         MEMORY_GUARD_CGROUP_STOP_KB=1
+    fi
+    MEMORY_GUARD_RSS_KB=$(seen_memory_page_floor_kb "$MEMORY_GUARD_RSS_KB" "$MEMORY_PAGE_BYTES") || {
+        echo "ERROR: aggregate memory cap must admit at least one complete kernel page" >&2
+        exit 126
+    }
+    if [ "$MEMORY_GUARD_CGROUP_STOP_KB" -gt "$MEMORY_GUARD_RSS_KB" ]; then
+        MEMORY_GUARD_CGROUP_STOP_KB=$MEMORY_GUARD_RSS_KB
     fi
     export SEEN_MEMORY_GUARD_RSS_KB="$MEMORY_GUARD_RSS_KB"
     export SEEN_MEMORY_GUARD_RESERVE_KB="$MEMORY_GUARD_RESERVE_KB"
@@ -2118,6 +2232,15 @@ if [ "${SEEN_LOW_MEMORY:-0}" = "1" ]; then
         echo -e "${RED}ERROR: SEEN_OPT_VMEM_KB may not exceed SEEN_MAIN_VMEM_KB.${NC}" >&2
         exit 1
     fi
+    REQUESTED_MAIN_COMPILER_VMEM_KB=$MAIN_COMPILER_VMEM_KB
+    MAIN_COMPILER_VMEM_KB=$(seen_memory_page_floor_kb "$MAIN_COMPILER_VMEM_KB" "$MEMORY_PAGE_BYTES") &&
+        OPT_VMEM_KB=$(seen_memory_page_floor_kb "$OPT_VMEM_KB" "$MEMORY_PAGE_BYTES") || {
+        echo "ERROR: compiler memory ceilings must admit at least one complete kernel page" >&2
+        exit 126
+    }
+    if [ "$OPT_VMEM_KB" -gt "$MAIN_COMPILER_VMEM_KB" ]; then
+        OPT_VMEM_KB=$MAIN_COMPILER_VMEM_KB
+    fi
     if [ -z "${SEEN_GUARD_RSS_KB:-}" ]; then
         MEMORY_GUARD_RSS_KB="$MAIN_COMPILER_VMEM_KB"
         export SEEN_MEMORY_GUARD_RSS_KB="$MEMORY_GUARD_RSS_KB"
@@ -2145,10 +2268,13 @@ if [ "${SEEN_LOW_MEMORY:-0}" = "1" ]; then
     RECOVERY_TIMEOUT_SECS="${SEEN_RECOVERY_TIMEOUT_SECS:-7200}"
     MAIN_COMPILER_MEMORY_LIMIT_BYTES="${SEEN_MEMORY_LIMIT_BYTES:-$((MAIN_COMPILER_VMEM_KB * 1024))}"
     if ! is_positive_integer "$MAIN_COMPILER_MEMORY_LIMIT_BYTES" ||
-        [ "$MAIN_COMPILER_MEMORY_LIMIT_BYTES" -gt "$((MAIN_COMPILER_VMEM_KB * 1024))" ]; then
+        [ "$MAIN_COMPILER_MEMORY_LIMIT_BYTES" -gt "$((REQUESTED_MAIN_COMPILER_VMEM_KB * 1024))" ]; then
 
         echo -e "${RED}ERROR: SEEN_MEMORY_LIMIT_BYTES must be positive and no larger than SEEN_MAIN_VMEM_KB in bytes.${NC}" >&2
         exit 1
+    fi
+    if [ "$MAIN_COMPILER_MEMORY_LIMIT_BYTES" -gt "$((MAIN_COMPILER_VMEM_KB * 1024))" ]; then
+        MAIN_COMPILER_MEMORY_LIMIT_BYTES=$((MAIN_COMPILER_VMEM_KB * 1024))
     fi
     export SEEN_LOW_MEMORY=1
     export SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB"
@@ -2461,6 +2587,7 @@ smoke_test_compiler() {
     local check_log="/tmp/safe_rebuild_${stage_slug}_hello_check.log"
     local compile_log="/tmp/safe_rebuild_${stage_slug}_hello_compile.log"
     local run_log="/tmp/safe_rebuild_${stage_slug}_hello_run.log"
+    local package_client="${4:-$SOURCE_PACKAGE_CLIENT}"
     local compiler_env=(-u SEEN_PACKAGE_CLIENT
         "SEEN_COMPILER_SOURCE_ROOT=$REPO_ROOT")
     local check_cmd=("$compiler_path" check "$smoke_source")
@@ -2481,10 +2608,10 @@ smoke_test_compiler() {
     compiler_env+=("LD_PRELOAD=$FORK_SERIALIZER_SO")
     compiler_env+=("SEEN_FORK_SERIALIZER_TARGET=$compiler_path")
     compiler_env+=("SEEN_FORK_SERIALIZER_ROOT_PID=")
-    # The fresh source helper is valid only for a compiler that reports the
-    # exact checkout version. Legacy/frozen builders inherit no package helper.
+    # Package-map formats are coupled to the executing compiler, not merely its
+    # release number. Existing builders may require an explicitly paired helper.
     if compiler_reports_checkout_version "$compiler_path"; then
-        compiler_env+=("SEEN_PACKAGE_CLIENT=$SOURCE_PACKAGE_CLIENT")
+        compiler_env+=("SEEN_PACKAGE_CLIENT=$package_client")
     fi
     if [ "$LOW_MEMORY_MODE" = "1" ]; then
         compiler_env+=("SEEN_LOW_MEMORY=${SEEN_LOW_MEMORY:-1}")
@@ -2686,7 +2813,7 @@ select_tier_builder() {
     local selection_args=(
         --repo-root "$REPO_ROOT"
         --checkout-version "$SOURCE_PACKAGE_CLIENT_VERSION"
-        --source-sidecar "$SOURCE_PACKAGE_CLIENT"
+        --source-sidecar "$BUILDER_PACKAGE_CLIENT"
     )
     if [ -n "${SEEN_STAGE_BUILDER:-}" ]; then
         selection_args+=(--explicit-builder "$SEEN_STAGE_BUILDER")
@@ -2753,7 +2880,7 @@ run_stage1_acceptance_checks() {
     local acceptance_timeout=1800
 
     if [ "$acceptance_tier" = "verify" ]; then
-        acceptance_timeout=7200
+        acceptance_timeout=14400
     fi
 
     echo "Running ${acceptance_tier}-tier Stage-1 acceptance checks against $compiler_path..."
@@ -2807,7 +2934,7 @@ run_tier_targeted_checks() {
 }
 
 prepare_package_client() {
-    local expected_version helper handshake expected_handshake
+    local expected_version helper handshake expected_handshake builder_helper
     expected_version=$(awk -F'"' '/^version = / { print $2; exit }' "$REPO_ROOT/Seen.toml")
     if [ -z "$expected_version" ]; then
         echo -e "${RED}ERROR: could not read the Seen version for package-client coupling.${NC}" >&2
@@ -2846,6 +2973,26 @@ prepare_package_client() {
     # frozen helper. Quick/verify and fresh full-tier candidates use this one.
     SOURCE_PACKAGE_CLIENT_VERSION="$expected_version"
     SOURCE_PACKAGE_CLIENT="$helper"
+    BUILDER_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT"
+    if [ -n "${SEEN_STAGE_BUILDER_PACKAGE_CLIENT:-}" ]; then
+        builder_helper="$SEEN_STAGE_BUILDER_PACKAGE_CLIENT"
+        [ -n "${SEEN_STAGE_BUILDER:-}" ] || {
+            echo -e "${RED}ERROR: a builder package client requires an explicit SEEN_STAGE_BUILDER.${NC}" >&2
+            return 1
+        }
+        [ -f "$builder_helper" ] && [ -x "$builder_helper" ] && [ ! -L "$builder_helper" ] || {
+            echo -e "${RED}ERROR: builder package client is not a regular executable: $builder_helper${NC}" >&2
+            return 1
+        }
+        builder_helper="$(cd "$(dirname "$builder_helper")" && pwd -P)/$(basename "$builder_helper")"
+        if ! handshake=$(timeout 10 "$builder_helper" --expect-version "$expected_version" version --machine 2>&1) ||
+            [ "$handshake" != "$expected_handshake" ]; then
+
+            echo -e "${RED}ERROR: builder package-client handshake failed for Seen $expected_version.${NC}" >&2
+            return 1
+        fi
+        BUILDER_PACKAGE_CLIENT="$builder_helper"
+    fi
     PACKAGE_CLIENT_BUILD_OUTPUT="$SOURCE_PACKAGE_CLIENT"
     unset SEEN_PACKAGE_CLIENT
     echo "Source package client: $SOURCE_PACKAGE_CLIENT"
@@ -2939,7 +3086,7 @@ run_tiered_rebuild() {
     run_guarded_command_to_log_with_failure_watch "$label compile" "$TIER_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" "$compile_log" \
         bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$source_root" \
         env \
-            SEEN_PACKAGE_CLIENT="$SOURCE_PACKAGE_CLIENT" \
+            SEEN_PACKAGE_CLIENT="$BUILDER_PACKAGE_CLIENT" \
             SEEN_COMPILER_SOURCE_ROOT="$source_root" \
             SEEN_LOW_MEMORY="${SEEN_LOW_MEMORY:-0}" \
             SEEN_MAIN_VMEM_KB="$MAIN_COMPILER_VMEM_KB" \
@@ -3002,7 +3149,7 @@ recover_with_preserved_production_compiler() {
 
     echo ""
     echo "Recovery: trying preserved production compiler..."
-    if ! smoke_test_compiler "$PRESERVED_PROD_BUILDER" "Preserved production compiler" "preserved_prod"; then
+    if ! smoke_test_compiler "$PRESERVED_PROD_BUILDER" "Preserved production compiler" "preserved_prod" "$BUILDER_PACKAGE_CLIENT"; then
         echo -e "${YELLOW}Preserved production compiler failed smoke; skipping recovery rebuild.${NC}"
         return 1
     fi
@@ -3057,7 +3204,7 @@ recover_with_preserved_production_compiler() {
         echo -e "${YELLOW}Preserved production compiler advertises no worker controls; direct-child serialization and the hard cgroup remain mandatory.${NC}"
     fi
     if compiler_reports_checkout_version "$recovery_builder_path"; then
-        recovery_package_env+=("SEEN_PACKAGE_CLIENT=$SOURCE_PACKAGE_CLIENT")
+        recovery_package_env+=("SEEN_PACKAGE_CLIENT=$BUILDER_PACKAGE_CLIENT")
     fi
     recovery_marker=$(mktemp -d /tmp/seen_preserved_recovery_marker.XXXXXX 2>/dev/null || true)
     run_guarded_command_to_log "preserved compiler recovery" "$RECOVERY_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" /tmp/safe_rebuild_stage3_recovery.log \
@@ -3258,7 +3405,7 @@ recover_with_existing_stage_builder() {
 
     echo ""
     echo "Recovery: trying existing stage builder $builder_path..."
-    if ! smoke_test_compiler "$builder_path" "Existing stage builder $builder_name" "existing_${builder_slug}"; then
+    if ! smoke_test_compiler "$builder_path" "Existing stage builder $builder_name" "existing_${builder_slug}" "$BUILDER_PACKAGE_CLIENT"; then
         echo -e "${YELLOW}Existing stage builder $builder_name failed smoke; trying next recovery builder.${NC}"
         return 1
     fi
@@ -3303,7 +3450,7 @@ recover_with_existing_stage_builder() {
         return 1
     fi
     if compiler_reports_checkout_version "$recovery_builder_path"; then
-        recovery_package_env+=("SEEN_PACKAGE_CLIENT=$SOURCE_PACKAGE_CLIENT")
+        recovery_package_env+=("SEEN_PACKAGE_CLIENT=$BUILDER_PACKAGE_CLIENT")
     fi
     run_guarded_command_to_log "existing stage builder $builder_name recovery" "$RECOVERY_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" "$builder_log" \
         bash -c 'cd "$1" || exit 1; shift; exec "$@"' bash "$recovery_source_root" \
@@ -3371,6 +3518,20 @@ preserve_existing_production_compiler >/dev/null 2>&1 || true
 # helper during dependency preparation. Build and verify it before any stage
 # can become a builder for the next stage.
 prepare_package_client || exit 1
+
+if [ -n "$REGRESSION_SCRIPT" ]; then
+    regression_builder=$(select_tier_builder) || exit 1
+    compiler_reports_checkout_version "$regression_builder" &&
+        compiler_serializer_applicable "$regression_builder" || {
+        echo "ERROR: focused regression builder failed version or serializer admission" >&2
+        exit 126
+    }
+    echo "Running focused regressions with $regression_builder; no bootstrap certification or compiler installation."
+    run_guarded_command "focused regression" "$TIER_TIMEOUT_SECS" "$MAIN_COMPILER_VMEM_KB" \
+        env COMPILER="$regression_builder" SEEN_PACKAGE_CLIENT="$BUILDER_PACKAGE_CLIENT" \
+            bash "$REGRESSION_SCRIPT"
+    exit $?
+fi
 
 if [ "$REBUILD_TIER" != "full" ]; then
     run_tiered_rebuild
@@ -3720,7 +3881,8 @@ if [ "$REBUILD_TIER" = "full" ]; then
     fi
 fi
 
-if [ "$LOW_MEMORY_MODE" = "1" ] && [ "$HOST_OS" != "Darwin" ] && [ "${SEEN_SKIP_LOW_MEMORY_SHORTCUT:-0}" != "1" ]; then
+if [ "$BOOTSTRAP_CANDIDATE_ONLY" = 0 ] && [ "$LOW_MEMORY_MODE" = "1" ] &&
+    [ "$HOST_OS" != "Darwin" ] && [ "${SEEN_SKIP_LOW_MEMORY_SHORTCUT:-0}" != "1" ]; then
     echo ""
     echo "Low-memory shortcut: trying existing stage builders before frozen bootstrap..."
     if recover_with_existing_stage_builders; then
@@ -4319,6 +4481,7 @@ if ! smoke_test_compiler "$STAGE2" "Stage2" "stage2"; then
     echo -e "${RED}Refusing to continue with an unusable bootstrap compiler.${NC}"
     exit 1
 fi
+CANDIDATE_STAGE2_SMOKE_OK=1
 if [ "${SEEN_STOP_AFTER_STAGE2_SMOKE:-0}" = "1" ]; then
     echo -e "${YELLOW}Stopping after Stage2 smoke as requested.${NC}"
     echo "Stage2 binary preserved at $STAGE2"
@@ -4457,6 +4620,7 @@ else
         echo ""
         echo "Stage3 smoke: checking hello-world..."
         if smoke_test_compiler "$STAGE3" "Stage3" "stage3"; then
+            CANDIDATE_STAGE3_SMOKE_OK=1
             echo ""
             echo "Step 3: Verifying bootstrap..."
             if diff "$STAGE2" "$STAGE3" > /dev/null 2>&1; then
@@ -4527,6 +4691,21 @@ else
 
     rm -rf "$OPT_WRAPPER_DIR"
 fi
+fi
+
+if [ "$BOOTSTRAP_CANDIDATE_ONLY" = 1 ]; then
+    if [ "$CANDIDATE_STAGE2_SMOKE_OK" != 1 ] ||
+        [ "$CANDIDATE_STAGE3_SMOKE_OK" != 1 ] || [ "$VERIFIED" != "$STAGE3" ]; then
+        echo "ERROR: candidate export requires fresh unmodified Stage2 and Stage3 smokes" >&2
+        exit 1
+    fi
+    python3 "$SCRIPT_DIR/ci_bootstrap_candidate.py" create \
+        --root "$REPO_ROOT" --compiler "$STAGE3" --stage2 "$STAGE2" \
+        --package-client "$SOURCE_PACKAGE_CLIENT" \
+        --output "$REPO_ROOT/target/seen-build/bootstrap-candidate"
+    echo "UNVERIFIED bootstrap candidate exported; all acceptance groups remain required."
+    echo "Production compiler artifacts and full-release stamp were not installed."
+    exit 0
 fi
 
 # A full rebuild must cover the same Stage-1 acceptance surface as verify

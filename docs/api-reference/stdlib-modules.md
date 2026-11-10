@@ -14,18 +14,22 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 
 | Family | Purpose |
 |--------|---------|
-| `async` | Future and async runtime helpers |
+| `accelerator` | Low-level accelerator bindings |
+| `async` | Structured tasks, executor pools, readiness and async I/O helpers |
 | `audio` | Audio backend/device wrappers |
 | `collections` | Collection types, buffers, maps, sets, pools |
+| `compute` | Accelerator providers, memory resources, staging and transfers |
 | `core` | Core types, conversion, reflection, binary helpers |
 | `crypto` | Hashing utilities |
-| `determinism` | Explicit runtime inputs and capability policy |
+| `determinism` | Bounded execution-context inputs and capability policy |
 | `env` | Environment helpers |
 | `ffi` | C type and interop helpers |
+| `formats` | Bounded binary format readers |
 | `framework` | Component, routing, middleware, store, VDOM, hot reload |
 | `fs` | Raw paths, move-only files, directories, links, durability, and traversal |
 | `graphics` | GPU, renderer, shader helpers |
 | `hash` | Hash helpers |
+| `inference` | Quantized formats, scalar and span helpers |
 | `input` | Gamepad/input abstractions |
 | `io` | File, buffered, and stdio helpers |
 | `json` | JSON values, parser, builder |
@@ -36,6 +40,7 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 | `operation_context` | Cancellation, deadline, and operation-limit facade |
 | `process` | Process execution helpers |
 | `random` | Random number generators |
+| `reactor` | Readiness reactor primitives |
 | `scripting` | Lua integration |
 | `secret` | Secret-value facade |
 | `security` | TEE/enclave helpers |
@@ -63,8 +68,35 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 
 ### `async`
 
+- `async/barrier`
+- `async/completion_io`
+- `async/deadline_heap`
+- `async/dns`
+- `async/dns_wire`
+- `async/event_loop`
+- `async/executor_core`
+- `async/executor_native`
+- `async/io_lease`
+- `async/io_wakeup`
+- `async/join_report`
 - `async/mod`
+- `async/multithread`
+- `async/owned_strings`
+- `async/pool_placement`
+- `async/pools`
+- `async/process_arguments`
+- `async/process_native`
+- `async/processes`
+- `async/queue`
+- `async/readiness_native`
+- `async/reduction`
+- `async/sockets`
+- `async/streams`
 - `async/structured`
+- `async/sync_domain`
+- `async/task_diagnostics`
+- `async/task_group`
+- `async/wait_group`
 
 ### `audio`
 
@@ -90,6 +122,59 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 - `collections/string_hash_map`
 - `collections/vec`
 - `collections/vecdeque`
+
+### `compute`
+
+- `compute/allocator`
+- `compute/backend`
+- `compute/buffer`
+- `compute/buffer_region`
+- `compute/capabilities`
+- `compute/context_lease`
+- `compute/cuda_device_transfer`
+- `compute/cuda_peer`
+- `compute/cuda_staging`
+- `compute/device`
+- `compute/device_info`
+- `compute/discovery`
+- `compute/error`
+- `compute/fallback`
+- `compute/limits`
+- `compute/memory_kind`
+- `compute/operation`
+- `compute/provider`
+- `compute/resource_arena_core`
+- `compute/resource_geometry`
+- `compute/resource_provider`
+- `compute/resource_ranges`
+- `compute/resource_stats`
+- `compute/staging_ring`
+- `compute/vulkan_abi`
+- `compute/vulkan_buffer_abi`
+- `compute/vulkan_error`
+- `compute/vulkan_graph`
+- `compute/vulkan_host_transfer`
+- `compute/vulkan_instance`
+- `compute/vulkan_mapping`
+- `compute/vulkan_memory`
+- `compute/vulkan_memory_info`
+- `compute/vulkan_native`
+- `compute/vulkan_pipeline`
+- `compute/vulkan_pipeline_abi`
+- `compute/vulkan_pipeline_artifact`
+- `compute/vulkan_pipeline_cache`
+- `compute/vulkan_pipeline_cache_file`
+- `compute/vulkan_pipeline_device`
+- `compute/vulkan_pipeline_dispatch`
+- `compute/vulkan_properties`
+- `compute/vulkan_provider`
+- `compute/vulkan_queue`
+- `compute/vulkan_staging`
+- `compute/vulkan_stream`
+- `compute/vulkan_timeline`
+- `compute/vulkan_timestamps`
+- `compute/vulkan_transfer`
+- `compute/vulkan_transfer_abi`
 
 ### `core`
 
@@ -166,6 +251,8 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 
 ### `inference`
 
+- `inference/iq3_xxs_codebook`
+- `inference/quantized_formats`
 - `inference/scalars`
 - `inference/span`
 
@@ -176,16 +263,56 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 
 ### `io`
 
+Checked byte storage uses `tryByteBufferWithCapacity` and
+`tryZeroedByteBuffer`, with bounded growth, explicit copies and generation-checked
+views. See [bounded byte storage](io.md#bounded-byte-storage) for capacity,
+alignment metadata and borrow/cleanup rules.
+
+Synchronous byte I/O provides `Reader`, `Writer`, `Seeker`, `BufRead` and
+`Flush`, plus concrete bounded in-memory readers and writers. Read/write counts
+are explicit partial progress; see [synchronous streams](io.md#synchronous-byte-io).
+Bounded adapters include `LimitedReader`, `CountingReader`, `TeeReader`,
+`HashingWriter`, `BufferedReader`, `BufferedWriter` and `copyLimited`; their
+[adapter contracts](io.md#bounded-byte-adapters) distinguish accepted bytes,
+buffered progress and cleanup.
+
+UTF-8 codecs provide strict validation and explicit lossy replacement with
+caller-supplied output bounds. Checked endian helpers preserve integer and
+floating-point bit representations; see [byte codecs](io.md#utf-8-and-endian-codecs).
+
+Asynchronous byte I/O is provided by `io/bytes`: the async stream traits,
+move-only in-memory reader/writer owners, and `await`-compatible entrypoints
+are documented in the [I/O reference](io.md#asynchronous-byte-io). These
+direct-ready memory streams are distinct from OS completion-queue adapters.
+
 - `io/buffered`
 - `io/bytes`
+- `io/completion_bytes`
+- `io/completion_diagnostics`
+- `io/completion_queue`
+- `io/completion_types`
 - `io/direct`
 - `io/file`
+- `io/iocp_file`
+- `io/iocp_layout`
+- `io/iocp_native`
+- `io/linux_uring`
+- `io/macos_file`
+- `io/macos_native`
+- `io/macos_positional`
 - `io/stdio`
+- `io/uring_file`
+- `io/uring_layout`
+- `io/uring_native`
+- `io/windows_iocp`
+- `io/worker_completion`
+- `io/worker_queue`
 
 ### `json`
 
 - `json/builder`
 - `json/canonical`
+- `json/float_format`
 - `json/mod`
 - `json/parser`
 - `json/strict`
@@ -208,10 +335,6 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 
 - `net/poll`
 - `net/tcp`
-
-### `operation_context`
-
-- `operation_context`
 
 ### `platform`
 
@@ -263,9 +386,17 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 
 ### `simd`
 
+- `simd/arm_blocks`
+- `simd/arm_dispatch`
+- `simd/arm_kernels`
 - `simd/dispatch_plan`
 - `simd/dot_clock`
+- `simd/dot_contract`
+- `simd/dot_scalar`
 - `simd/ir_types`
+- `simd/memory_operations`
+- `simd/operation_types`
+- `simd/quantized_decode`
 - `simd/simd_math`
 - `simd/simd_types`
 - `simd/x86_blocks`
@@ -296,7 +427,6 @@ byte-offset and Unicode-codepoint APIs are intentionally distinct.
 
 - `thread/affinity`
 - `thread/mod`
-- `thread/pool`
 
 ### `time`
 

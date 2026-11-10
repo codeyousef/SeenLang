@@ -1,0 +1,49 @@
+import compute.vulkan_transfer_abi.{VulkanCopyBarrier, vkCmdPipelineBarrier}
+/// Vulkan 1.2 compute pipeline ABI. Import alone does not link a GPU SDK.
+@repr(C)
+class VulkanShaderInfo { var sType: UInt32; var pNext: *Void; var flags: UInt32; var codeSize: UInt64; var pCode: *const UInt32 }
+@repr(C)
+class VulkanLayoutBinding { var binding: UInt32; var descriptorType: UInt32; var descriptorCount: UInt32; var stageFlags: UInt32; var immutableSamplers: *Void }
+@repr(C)
+class VulkanSetLayoutInfo { var sType: UInt32; var pNext: *Void; var flags: UInt32; var bindingCount: UInt32; var bindings: *const VulkanLayoutBinding }
+@repr(C)
+class VulkanPipelineLayoutInfo { var sType: UInt32; var pNext: *Void; var flags: UInt32; var setCount: UInt32; var sets: *const UInt64; var pushCount: UInt32; var pushRanges: *Void }
+@repr(C)
+class VulkanPipelineStage { var sType: UInt32; var pNext: *Void; var flags: UInt32; var stage: UInt32; var module: UInt64; var name: *const Char; var specialization: *Void }
+@repr(C)
+class VulkanComputePipelineInfo { var sType: UInt32; var pNext: *Void; var flags: UInt32; var stage: VulkanPipelineStage; var layout: UInt64; var base: UInt64; var baseIndex: Int32 }
+@repr(C)
+class VulkanCacheInfo { var sType: UInt32; var pNext: *Void; var flags: UInt32; var initialSize: UInt64; var initialData: *const UInt8 }
+@repr(C)
+class VulkanPoolSize { var descriptorType: UInt32; var count: UInt32 }
+@repr(C)
+class VulkanDescriptorPoolInfo { var sType: UInt32; var pNext: *Void; var flags: UInt32; var maxSets: UInt32; var sizeCount: UInt32; var sizes: *const VulkanPoolSize }
+@repr(C)
+class VulkanDescriptorAllocateInfo { var sType: UInt32; var pNext: *Void; var pool: UInt64; var count: UInt32; var layouts: *const UInt64 }
+@repr(C)
+class VulkanDescriptorBufferInfo { var buffer: UInt64; var offset: UInt64; var range: UInt64 }
+@repr(C)
+class VulkanDescriptorWrite { var sType: UInt32; var pNext: *Void; var set: UInt64; var binding: UInt32; var arrayElement: UInt32; var count: UInt32; var descriptorType: UInt32; var imageInfo: *Void; var bufferInfo: *const VulkanDescriptorBufferInfo; var texelView: *Void }
+extern "C" fun vkCreateShaderModule(device: UInt64, info: *const VulkanShaderInfo, allocator: *Void, output: *UInt64) r: Int32
+extern "C" fun vkDestroyShaderModule(device: UInt64, module: UInt64, allocator: *Void) r: Void
+extern "C" fun vkCreateDescriptorSetLayout(device: UInt64, info: *const VulkanSetLayoutInfo, allocator: *Void, output: *UInt64) r: Int32
+extern "C" fun vkDestroyDescriptorSetLayout(device: UInt64, layout: UInt64, allocator: *Void) r: Void
+extern "C" fun vkCreatePipelineLayout(device: UInt64, info: *const VulkanPipelineLayoutInfo, allocator: *Void, output: *UInt64) r: Int32
+extern "C" fun vkDestroyPipelineLayout(device: UInt64, layout: UInt64, allocator: *Void) r: Void
+extern "C" fun vkCreatePipelineCache(device: UInt64, info: *const VulkanCacheInfo, allocator: *Void, output: *UInt64) r: Int32
+extern "C" fun vkGetPipelineCacheData(device: UInt64, cache: UInt64, size: *UInt64, data: *UInt8) r: Int32
+extern "C" fun vkDestroyPipelineCache(device: UInt64, cache: UInt64, allocator: *Void) r: Void
+extern "C" fun vkCreateComputePipelines(device: UInt64, cache: UInt64, count: UInt32, info: *const VulkanComputePipelineInfo, allocator: *Void, output: *UInt64) r: Int32
+extern "C" fun vkDestroyPipeline(device: UInt64, pipeline: UInt64, allocator: *Void) r: Void
+extern "C" fun vkCreateDescriptorPool(device: UInt64, info: *const VulkanDescriptorPoolInfo, allocator: *Void, output: *UInt64) r: Int32
+extern "C" fun vkDestroyDescriptorPool(device: UInt64, pool: UInt64, allocator: *Void) r: Void
+extern "C" fun vkAllocateDescriptorSets(device: UInt64, info: *const VulkanDescriptorAllocateInfo, output: *UInt64) r: Int32
+extern "C" fun vkUpdateDescriptorSets(device: UInt64, count: UInt32, writes: *const VulkanDescriptorWrite, copyCount: UInt32, copies: *Void) r: Void
+extern "C" fun vkCmdBindPipeline(command: UInt64, bindPoint: UInt32, pipeline: UInt64) r: Void
+extern "C" fun vkCmdBindDescriptorSets(command: UInt64, bindPoint: UInt32, layout: UInt64, firstSet: UInt32, count: UInt32, sets: *const UInt64, dynamicCount: UInt32, offsets: *const UInt32) r: Void
+extern "C" fun vkCmdDispatch(command: UInt64, x: UInt32, y: UInt32, z: UInt32) r: Void
+extern "C" fun vkCmdFillBuffer(command: UInt64, buffer: UInt64, offset: UInt64, size: UInt64, data: UInt32) r: Void
+fun gpuVkPipelineBarrier(command: UInt64, buffer: UInt64, offset: UInt64, bytes: UInt64, sourceStage: UInt32, destinationStage: UInt32, sourceAccess: UInt32, destinationAccess: UInt32) r: Void {
+    let range = VulkanCopyBarrier{sType: 44 as UInt32, pNext: null as *Void, srcAccessMask: sourceAccess, dstAccessMask: destinationAccess, srcQueueFamilyIndex: 4294967295 as UInt32, dstQueueFamilyIndex: 4294967295 as UInt32, buffer: buffer, offset: offset, size: bytes}
+    vkCmdPipelineBarrier(command, sourceStage, destinationStage, 0 as UInt32, 0 as UInt32, null as *Void, 1 as UInt32, (&range) as *const VulkanCopyBarrier, 0 as UInt32, null as *Void)
+}

@@ -5,12 +5,17 @@ fun main() r: Int {
     let methods = ["narrow,wide,narrow,wide", "wide,narrow", "wide"]
     let returns = ["Int8|UInt32|Int8|UInt32", "UInt32|Int8", "UInt32"]
     let registry = [""]; let count = [0]
-    registerClassTraitImplsImpl("Probe", "Provider|Provider|", names, methods, returns, registry, count)
+    let functions = Array<String>(); let functionReturns = Array<String>()
+    registerClassTraitImplsImpl("Probe", "Provider|Provider|", names, methods, returns, registry, count, functions, functionReturns)
     require(count[0] == 2 and registry[0] == "Provider:Probe:Probe_narrow|Provider:Probe:Probe_wide|")
-    registerClassTraitImplsImpl("Probe", "Provider|", names, methods, returns, registry, count)
+    registerClassTraitImplsImpl("Probe", "Provider|", names, methods, returns, registry, count, functions, functionReturns)
     appendTraitImplEntryImpl("Provider:Probe:Probe_narrow", registry, count); require(count[0] == 2)
-    registerClassTraitImplsImpl("Incomplete", "Provider|", names, methods, returns, registry, count)
+    registerClassTraitImplsImpl("Incomplete", "Provider|", names, methods, returns, registry, count, functions, functionReturns)
     require(count[0] == 2 and registry[0] == "Provider:Probe:Probe_narrow|Provider:Probe:Probe_wide|")
+    functions.push("Incomplete_narrow"); functionReturns.push("Int8")
+    registerClassTraitImplsImpl("Incomplete", "Provider|", names, methods, returns, registry, count, functions, functionReturns)
+    require(count[0] == 4 and registry[0].endsWith("Provider:Incomplete:Incomplete_narrow|Provider:Incomplete:Incomplete_wide|"))
+    functions.free(); functionReturns.free()
     names.free(); methods.free(); returns.free(); registry.free(); count.free()
     println("PASS: trait registration identity deduplicates scans and preserves declared slots")
     return 0

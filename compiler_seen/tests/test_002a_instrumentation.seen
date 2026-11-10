@@ -1,4 +1,6 @@
-import core.error.{AsciiString}
+import core.error.{AsciiString, SeenError}
+import core.result.{Result}
+import memory.allocation.{memoryStats}
 import core.operation_context.{OperationLimits, OperationContext}
 import testing.instrumentation.{TestInstrumentationComponent,
     TestInstrumentationPlan, validateTestInstrumentation}
@@ -18,57 +20,114 @@ fun test002aContext(cancelled: Bool, modules: Int) r: OperationContext {
 
 fun test002aComponents(hardware: Bool) r: Array<TestInstrumentationComponent> {
     let values = Array<TestInstrumentationComponent>()
-    for name in ["compiler-host", "gpu-emitters", "seen-modules",
-        "native-runtime", "abi-shims"] {
+    let names = ["compiler-host", "gpu-emitters", "seen-modules",
+        "native-runtime", "abi-shims"]
+    for name in names {
         values.push(TestInstrumentationComponent{name: name, compiled: true,
             softwareExecuted: true, hardwareExecuted: hardware})
     }
+    names.free()
     return values
 }
 
+fun test002aReleaseError(error: SeenError) r: Void {
+    error.code.free()
+    error.subsystem.free()
+    error.operation.free()
+    error.causes.free()
+    error.nativeCode.free()
+    error.free()
+}
+
+fun test002aReleaseChecked(checked: Result<TestInstrumentationPlan, SeenError>) r: Void {
+    if checked.isErr() { test002aReleaseError(checked.unwrapErr()) }
+    // Successful payloads borrow the caller's plan.
+    checked.releaseContainer()
+}
+
 fun main() r: Int {
-    let happy = validateTestInstrumentation(TestInstrumentationPlan{
-        profile: "coverage", coverage: true, sanitizer: "",
-        target: "linux-x86_64", components: test002aComponents(false)},
-        test002aContext(false, 5))
-    if happy.isErr() { println("FAIL: TEST-002A_happy"); return 1 }
-    println("PASS: TEST-002A_happy")
+    let initial = memoryStats()
+    var failures = 0
+    let context = test002aContext(false, 5)
+    let components = test002aComponents(false)
+    let plan = TestInstrumentationPlan{profile: "coverage", coverage: true,
+        sanitizer: "", target: "linux-x86_64", components: components}
+    let happy = validateTestInstrumentation(plan, context)
+    if happy.isErr() {
+        println("FAIL: TEST-002A_happy")
+        failures = failures + 1
+    } else { println("PASS: TEST-002A_happy") }
+    test002aReleaseChecked(happy)
 
-    let fuzz = validateTestInstrumentationFuzz(TestInstrumentationFuzzPlan{
-        seed: 1101, durationSeconds: 60, maxBytes: 4096},
-        test002aContext(false, 100))
-    let benchmark = validateTestInstrumentationBenchmark(
-        TestInstrumentationBenchmarkPlan{warmups: 5, samples: 30,
-            iterationsPerSample: 100, maxRegressionPercent: 5},
-        test002aContext(false, 100))
+    context.limits.maxGraphModules = 100
+    let fuzzPlan = TestInstrumentationFuzzPlan{
+        seed: 1101, durationSeconds: 60, maxBytes: 4096}
+    let benchmarkPlan = TestInstrumentationBenchmarkPlan{
+        warmups: 5, samples: 30, iterationsPerSample: 100,
+        maxRegressionPercent: 5}
+    let fuzz = validateTestInstrumentationFuzz(fuzzPlan, context)
+    let benchmark = validateTestInstrumentationBenchmark(benchmarkPlan, context)
     if fuzz.isErr() or benchmark.isErr() {
-        println("FAIL: TEST-002A_happy"); return 1
+        println("FAIL: TEST-002A_happy")
+        failures = failures + 1
     }
+    if fuzz.isErr() { test002aReleaseError(fuzz.unwrapErr()) }
+    if benchmark.isErr() { test002aReleaseError(benchmark.unwrapErr()) }
+    fuzz.releaseContainer()
+    benchmark.releaseContainer()
+    fuzzPlan.free()
+    benchmarkPlan.free()
+    context.limits.maxGraphModules = 5
 
-    let invalid = validateTestInstrumentation(TestInstrumentationPlan{
-        profile: "coverage", coverage: true, sanitizer: "",
-        target: "linux-x86_64", components: test002aComponents(true)},
-        test002aContext(false, 5))
-    if not invalid.isErr() or invalid.unwrapErr().code.value !=
-        "test.002a.invalid" { println("FAIL: TEST-002A_invalid"); return 1 }
-    println("PASS: TEST-002A_invalid")
+    components[4].hardwareExecuted = true
+    let invalid = validateTestInstrumentation(plan, context)
+    if not invalid.isErr() or invalid.unwrapErr().code.value != "test.002a.invalid" {
+        println("FAIL: TEST-002A_invalid")
+        failures = failures + 1
+    } else { println("PASS: TEST-002A_invalid") }
+    test002aReleaseChecked(invalid)
+    components[4].hardwareExecuted = false
 
-    let limited = validateTestInstrumentation(TestInstrumentationPlan{
-        profile: "sanitizer-undefined", coverage: false,
-        sanitizer: "undefined", target: "linux-x86_64",
-        components: test002aComponents(false)}, test002aContext(false, 4))
-    if not limited.isErr() or limited.unwrapErr().code.value !=
-        "test.002a.limit" { println("FAIL: TEST-002A_limit"); return 1 }
-    println("PASS: TEST-002A_limit")
+    plan.profile = "sanitizer-undefined"
+    plan.coverage = false
+    plan.sanitizer = "undefined"
+    context.limits.maxGraphModules = 4
+    let limited = validateTestInstrumentation(plan, context)
+    if not limited.isErr() or limited.unwrapErr().code.value != "test.002a.limit" {
+        println("FAIL: TEST-002A_limit")
+        failures = failures + 1
+    } else { println("PASS: TEST-002A_limit") }
+    test002aReleaseChecked(limited)
+    context.limits.maxGraphModules = 5
 
-    let cancelled = validateTestInstrumentation(TestInstrumentationPlan{
-        profile: "coverage", coverage: true, sanitizer: "",
-        target: "linux-x86_64", components: test002aComponents(false)},
-        test002aContext(true, 5))
-    if not cancelled.isErr() or cancelled.unwrapErr().code.value !=
-        "test.002a.cancelled" { println("FAIL: TEST-002A_cancel"); return 1 }
-    println("PASS: TEST-002A_cancel")
-    println("PASS: TEST-002A_cleanup")
+    plan.profile = "coverage"
+    plan.coverage = true
+    plan.sanitizer = ""
+    context.cancellation = true
+    let cancelled = validateTestInstrumentation(plan, context)
+    if not cancelled.isErr() or cancelled.unwrapErr().code.value != "test.002a.cancelled" {
+        println("FAIL: TEST-002A_cancel")
+        failures = failures + 1
+    } else { println("PASS: TEST-002A_cancel") }
+    test002aReleaseChecked(cancelled)
+
+    var index = 0
+    while index < components.length() {
+        components[index].free()
+        index = index + 1
+    }
+    components.free()
+    plan.free()
+    context.traceId.free()
+    context.limits.free()
+    context.free()
+    let closed = memoryStats()
+    if closed.usedBytes != initial.usedBytes or
+        closed.allocationFailures != initial.allocationFailures {
+        println("FAIL: TEST-002A_cleanup")
+        failures = failures + 1
+    } else { println("PASS: TEST-002A_cleanup") }
+    if failures != 0 { return 1 }
     return 0
 }
 

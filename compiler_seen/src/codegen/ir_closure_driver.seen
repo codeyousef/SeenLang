@@ -1,40 +1,26 @@
+import codegen.source_coverage_state.{beginSourceCoverageClosure, endSourceCoverageFunction}
 // ir_closure_driver.seen - closure expression lowering.
 
 import parser.real_parser.{ParserExpressionNode, getUiCallbackBlock}
 import str.string.{StringBuilder}
 import codegen.ir_codegen_state.{getSharedCodegenState}
-import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, reserveFeatureClosureIdImpl, appendFeatureGeneratedDefinitionImpl}
 import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, setActiveVarCountWithGlobalStateImpl}
 import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType, lowerCallExpression, prepareLoweredCallArgumentsWithDefaults, lowerEnumConstructor, resetLoweringGenerator, resetLoweringSharedModuleScratch, syncLoweringState, writeBackLoweringState, lowerProgramClasses, lowerProgramTopLevelFunctions, lowerPlainLargeClass, lowerClassNode, lowerFunctionNode, lowerClassMethodFromList, setLowerCurrentClassParentName, resetLoweringLocalCodegenState, collectLoweringVariableDeclarations, clearLoweringActiveBindings, lowerBlock, lowerStatement, isLoweringBlockTerminated, beginLoweringNestedScratch, restoreLoweringNestedScratch, currentLoweringFunctionOptions}
 import codegen.ir_method_receiver.{quoteIdentIfNeededImpl}
 import codegen.ir_optimization.{getNextRegFn}
 import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
+import codegen.ir_module_function_identity.{moduleOwnedGeneratedFunctionSymbolImpl}
 
-class ClosureDriverResult {
-    var resultReg: String
-    var closureCount: Int
-    var closureDefs: String
-
-    static fun new(resultReg: String, closureCount: Int,
-        closureDefs: String) r: ClosureDriverResult {
-
-        return ClosureDriverResult{
-            resultReg: resultReg,
-            closureCount: closureCount,
-            closureDefs: closureDefs
-        }
-    }
-}
 
 fun generateClosureState(ctx: CodegenLoweringContext,
     output: StringBuilder, expr: ParserExpressionNode,
     varNames: Array<String>, varRegs: Array<String>,
-    varTypes: Array<String>, closureCount: Int, closureDefs: String)
-    r: ClosureDriverResult {
+    varTypes: Array<String>) r: String {
 
-    let closureId = closureCount
-    let nextClosureCount = closureCount + 1
-    let closureName = "__seen_closure_" + closureId.toString()
+    let closureId = reserveFeatureClosureIdImpl()
+    let closureName = moduleOwnedGeneratedFunctionSymbolImpl(
+        "__seen_closure_" + closureId.toString())
 
     var paramList: String = ""
     var paramIdx = 0
@@ -68,30 +54,31 @@ fun generateClosureState(ctx: CodegenLoweringContext,
         paramIdx = paramIdx + 1
     }
 
+    beginSourceCoverageClosure(nestedOutput, closureName)
     let clBodyReg = lowerExpression(ctx, expr.operands[0])
+    endSourceCoverageFunction()
     if not isLoweringBlockTerminated(ctx) {
         nestedOutput.append("  ret i64 " + clBodyReg + "\n")
     }
     nestedOutput.append("}\n\n")
 
-    let nextClosureDefs = closureDefs + nestedOutput.toString()
+    let definition = nestedOutput.toString()
 
     restoreLoweringNestedScratch(ctx, clSavedState)
+    appendFeatureGeneratedDefinitionImpl(definition)
 
     let clResultReg = getNextRegFn(getFeatureRegBoxImpl())
     output.append("  " + clResultReg + " = ptrtoint ptr @" +
-        closureName + " to i64\n")
-    return ClosureDriverResult.new(clResultReg, nextClosureCount,
-        nextClosureDefs)
+        quoteIdentIfNeededImpl(closureName) + " to i64\n")
+    return clResultReg
 }
 
 fun generateUiCallbackState(ctx: CodegenLoweringContext,
-    output: StringBuilder, expr: ParserExpressionNode,
-    closureCount: Int, closureDefs: String) r: ClosureDriverResult {
+    output: StringBuilder, expr: ParserExpressionNode) r: String {
 
-    let closureId = closureCount
-    let nextClosureCount = closureCount + 1
-    let closureName = "__seen_ui_callback_" + closureId.toString()
+    let closureId = reserveFeatureClosureIdImpl()
+    let closureName = moduleOwnedGeneratedFunctionSymbolImpl(
+        "__seen_ui_callback_" + closureId.toString())
 
     let clSavedState = beginLoweringNestedScratch(ctx, "Int")
     let nestedOutput = getSharedCodegenState().output
@@ -99,22 +86,24 @@ fun generateUiCallbackState(ctx: CodegenLoweringContext,
     nestedOutput.append("define i64 @" + quoteIdentIfNeededImpl(closureName) +
         "() {\n")
     nestedOutput.append("entry:\n")
+    beginSourceCoverageClosure(nestedOutput, closureName)
     let callbackBlock = getUiCallbackBlock(expr)
     if callbackBlock.statements.length() > 0 {
         lowerBlock(ctx, callbackBlock)
     }
+    endSourceCoverageFunction()
     if not isLoweringBlockTerminated(ctx) {
         nestedOutput.append("  ret i64 0\n")
     }
     nestedOutput.append("}\n\n")
 
-    let nextClosureDefs = closureDefs + nestedOutput.toString()
+    let definition = nestedOutput.toString()
 
     restoreLoweringNestedScratch(ctx, clSavedState)
+    appendFeatureGeneratedDefinitionImpl(definition)
 
     let clResultReg = getNextRegFn(getFeatureRegBoxImpl())
     output.append("  " + clResultReg + " = ptrtoint ptr @" +
-        closureName + " to i64\n")
-    return ClosureDriverResult.new(clResultReg, nextClosureCount,
-        nextClosureDefs)
+        quoteIdentIfNeededImpl(closureName) + " to i64\n")
+    return clResultReg
 }

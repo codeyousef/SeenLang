@@ -28,13 +28,10 @@ fun operationContextFailure(code: String, message: String) r: SeenError {
         RetryClass.Never, RedactionClass.Public)
 }
 
-fun validateOperationContext(context: OperationContext)
-    r: Result<OperationContext, SeenError> {
-
-    if context.cancellation or context.monotonicDeadline < 0 {
-        return Err<OperationContext, SeenError>(operationContextFailure(
-            "err.001a.cancelled", "operation context is cancelled"))
-    }
+/// Allocation-free admission shared by subsystem adapters. Stable statuses:
+/// 0=valid, 1=cancelled, 2=limit, 3=invalid identity. Does not read a clock.
+fun operationContextValidationStatus(context: OperationContext) r: Int {
+    if context.cancellation or context.monotonicDeadline < 0 { return 1 }
     let limits = context.limits
     if limits.maxTargets <= 0 or limits.maxIdentityBytes <= 0 or
         limits.maxVersionBytes <= 0 or limits.maxManifestBytes <= 0 or
@@ -45,13 +42,24 @@ fun validateOperationContext(context: OperationContext)
         limits.maxGraphModules > 100000 or limits.maxGraphEdges > 1000000 or
         limits.maxGraphDepth > 1024 {
 
-        return Err<OperationContext, SeenError>(operationContextFailure(
-            "err.001a.limit", "operation context limit is invalid"))
+        return 2
     }
     if not errorIdentityValid(context.traceId.value) {
-        return Err<OperationContext, SeenError>(operationContextFailure(
-            "err.001a.invalid", "trace identity is not canonical ASCII"))
+        return 3
     }
+    return 0
+}
+
+fun validateOperationContext(context: OperationContext)
+    r: Result<OperationContext, SeenError> {
+
+    let status = operationContextValidationStatus(context)
+    if status == 1 { return Err<OperationContext, SeenError>(operationContextFailure(
+        "err.001a.cancelled", "operation context is cancelled")) }
+    if status == 2 { return Err<OperationContext, SeenError>(operationContextFailure(
+        "err.001a.limit", "operation context limit is invalid")) }
+    if status == 3 { return Err<OperationContext, SeenError>(operationContextFailure(
+        "err.001a.invalid", "trace identity is not canonical ASCII")) }
     return Ok<OperationContext, SeenError>(context)
 }
 

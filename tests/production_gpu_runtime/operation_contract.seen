@@ -1,0 +1,52 @@
+import device_fixture_support.{operation, releaseOperation, gpuFixtureRejected}
+import compute.operation.{gpuCheckOperation}
+import core.operation_context.{operationContextValidationStatus, validateOperationContext}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun main() r: Int {
+    let memory = seen_memory_used_bytes(); let context = operation()
+    let valid = gpuCheckOperation(context, "gpu.context")
+    if valid.isErr() or not valid.unwrap() { abort("valid GPU operation context rejected") }
+    valid.releaseContainer()
+    context.cancellation = true
+    gpuFixtureRejected(gpuCheckOperation(context, "gpu.context"), "gpu.cancelled")
+    context.monotonicDeadline = -1 as Int64
+    gpuFixtureRejected(gpuCheckOperation(context, "gpu.context"), "gpu.cancelled")
+    context.cancellation = false
+    gpuFixtureRejected(gpuCheckOperation(context, "gpu.context"), "gpu.timeout")
+    context.monotonicDeadline = 1 as Int64
+    gpuFixtureRejected(gpuCheckOperation(context, "gpu.context"), "gpu.timeout")
+    context.monotonicDeadline = 9223372036854775807 as Int64
+    context.limits.maxTargets = 0
+    gpuFixtureRejected(gpuCheckOperation(context, "gpu.context"), "gpu.limit")
+    context.limits.maxTargets = 8; context.traceId.value = "invalid trace"
+    gpuFixtureRejected(gpuCheckOperation(context, "gpu.context"), "gpu.invalid")
+    // The shared allocation-free check preserves the existing core API's
+    // diagnostics and ownership: exercise all four result classes.
+    var index = 0
+    while index < 4 {
+        context.traceId.value = "gpu-fixture"; context.cancellation = index == 1
+        context.limits.maxTargets = 8
+        if index == 2 { context.limits.maxTargets = 0 }
+        if index == 3 { context.traceId.value = "invalid trace" }
+        if operationContextValidationStatus(context) != index { abort("core context status changed") }
+        let checked = validateOperationContext(context)
+        if index == 0 {
+            if checked.isErr() { abort("valid core context rejected") }
+        } else {
+            if checked.isOkay() { abort("invalid core context accepted") }
+            let error = checked.unwrapErr()
+            var expected = "err.001a.cancelled"
+            if index == 2 { expected = "err.001a.limit" }
+            if index == 3 { expected = "err.001a.invalid" }
+            if error.code.value != expected { abort("core context diagnostic changed") }
+            error.code.free(); error.subsystem.free(); error.operation.free()
+            error.causes.data.free(); error.causes.free(); error.nativeCode.free(); error.free()
+        }
+        checked.releaseContainer(); index = index + 1
+    }
+    releaseOperation(context)
+    if seen_memory_used_bytes() != memory { abort("GPU context admission leaked allocations") }
+    println("PASS: GPU-006A operation cancellation deadline and shared context validation")
+    return 0
+}

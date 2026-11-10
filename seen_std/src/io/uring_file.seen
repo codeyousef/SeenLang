@@ -1,0 +1,15 @@
+/// Independent descriptor ownership for buffered or explicitly direct File I/O.
+import core.result.{Result, Ok, Err}
+import async.structured.{AsyncError}
+import fs.file.{File}
+import reactor.reactor.{OwnedHandle}
+import io.uring_native.{seen_uring_duplicate_file}
+import io.uring_layout.{uringStatus}
+import io.completion_types.{ioQueueFailure}
+
+fun uringFileHandle(borrow file: File) r: Result<OwnedHandle, AsyncError> {
+    if file.handle == (0 as UInt64) { return Err<OwnedHandle, AsyncError>(ioQueueFailure(1 as Int32, "io.uring.file.closed", 0 as UInt64)) }
+    let descriptor = seen_uring_duplicate_file(file.handle)
+    if descriptor < (0 as Int64) { return Err<OwnedHandle, AsyncError>(ioQueueFailure(uringStatus(descriptor), "io.uring.file.duplicate", 0 as UInt64)) }
+    return Ok<OwnedHandle, AsyncError>(OwnedHandle{native: descriptor, owned: true, valid: true})
+}

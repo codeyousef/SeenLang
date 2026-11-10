@@ -1,0 +1,369 @@
+/// Walk type-bearing AST slots only. Concrete classes come from a fresh parse,
+/// so substituting one shape never mutates another shape or its erased template.
+import parser.real_parser.{ProgramNode, ItemNode, ClassNode, FunctionNode, BlockNode, ParserExpressionNode, AnnotationNode, genericParameterCount, genericParameterNameAt, getUiSlotCount, getUiSlotBlock}
+import typechecker.lexical_semantic.{semanticGlobalEncodedType}
+import codegen.ir_generic_aggregate.{GenericAggregateDemand, g_genericAggregateDemands, g_genericAggregateOpenParameters, rewriteGenericAggregateSpellingImpl, substituteGenericAggregateSpellingImpl, genericAggregateResolveTypeImpl, genericAggregateValueTypeImpl, recordGenericAggregateFunctionBodyImpl, rejectGenericAggregateImpl}
+import typechecker.type_ref.{TypeRef, parseTypeRef}
+
+// Value bindings shadow type parameters in call roots, but not in type slots.
+// Each function owns its list; nested/callback blocks restore lexical scope.
+var g_genericAggregateValueNames: Array<String> = Array<String>()
+
+fun genericAggregateValueCalleeImpl(callee: String) r: Bool {
+    var end = callee.length()
+    let angle = callee.indexOf("<", 0)
+    if angle >= 0 and angle < end { end = angle }
+    let dot = callee.indexOf(".", 0)
+    if dot >= 0 and dot < end { end = dot }
+    let colon = callee.indexOf("::", 0)
+    if colon >= 0 and colon < end { end = colon }
+    let root = callee.substring(0, end)
+    var i = 0
+    while i < g_genericAggregateValueNames.length() {
+        if g_genericAggregateValueNames[i] == root { return true }
+        i = i + 1
+    }
+    return false
+}
+
+fun visitGenericAggregateValueCalleeImpl(callee: String, moduleName: String,
+    parameters: Array<String>, arguments: Array<TypeRef>, discover: Bool,
+    substitute: Bool) r: String {
+    if not callee.contains("<") { return callee }
+    let reference = parseTypeRef(callee, 0, 0, "")
+    if not reference.valid { return callee }
+    var i = 0
+    while i < reference.arguments.length() {
+        var spelling = reference.arguments[i].canonical()
+        if substitute {
+            spelling = substituteGenericAggregateSpellingImpl(spelling,
+                parameters, arguments, moduleName, discover)
+        }
+        reference.arguments[i] = parseTypeRef(rewriteGenericAggregateSpellingImpl(
+            spelling, moduleName, discover), 0, 0, "")
+        i = i + 1
+    }
+    return reference.canonical()
+}
+
+fun visitGenericAggregateExpressionImpl(expression: ParserExpressionNode,
+    moduleName: String, parameters: Array<String>, arguments: Array<TypeRef>,
+    discover: Bool, substitute: Bool, depth: Int) r: Void {
+    if expression.kind == "None" or expression.kind == "" { return }
+    if depth > 256 {
+        rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] expression nesting exceeds lowering limit")
+    }
+    if expression.kind == "MethodCall" and expression.callee.contains("<") {
+        var spelling = expression.callee
+        if substitute {
+            spelling = substituteGenericAggregateSpellingImpl(spelling, parameters, arguments, moduleName, discover)
+        }
+        let methodType = parseTypeRef(spelling, 0, 0, "")
+        if methodType.valid {
+            genericAggregateResolveTypeImpl(methodType, moduleName, 0)
+            var argumentIndex = 0
+            while argumentIndex < methodType.arguments.length() {
+                if genericAggregateValueTypeImpl(methodType.arguments[argumentIndex], moduleName, 0) {
+                    rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] explicit aggregate generic method specialization is not supported: " + expression.callee)
+                }
+                argumentIndex = argumentIndex + 1
+            }
+        }
+        let rewritten = rewriteGenericAggregateSpellingImpl(spelling, moduleName, discover)
+        if not discover or substitute { expression.callee = rewritten }
+    }
+    // Only type-bearing slots are rewritten. Literal bytes, field/member
+    // names, operators and lexical variable bindings are never substitutions.
+    if expression.kind == "Call" {
+        var spelling = expression.callee
+        if genericAggregateValueCalleeImpl(spelling) {
+            spelling = visitGenericAggregateValueCalleeImpl(spelling, moduleName,
+                parameters, arguments, discover, substitute)
+        } else {
+            if substitute {
+                spelling = substituteGenericAggregateSpellingImpl(spelling,
+                    parameters, arguments, moduleName, discover)
+            }
+            spelling = rewriteGenericAggregateSpellingImpl(spelling,
+                moduleName, discover)
+        }
+        if not discover or substitute { expression.callee = spelling }
+    }
+    if expression.kind == "StructLiteral" {
+        var spelling = expression.literalType
+        if substitute {
+            spelling = substituteGenericAggregateSpellingImpl(spelling,
+                parameters, arguments, moduleName, discover)
+        }
+        let rewritten = rewriteGenericAggregateSpellingImpl(spelling,
+            moduleName, discover)
+        if not discover or substitute { expression.literalType = rewritten }
+    }
+    if expression.kind == "Cast" or expression.kind == "IsExpression" or
+        (expression.kind == "MethodCall" and expression.literalValue.contains("<")) {
+        var spelling = expression.literalValue
+        if substitute {
+            spelling = substituteGenericAggregateSpellingImpl(spelling,
+                parameters, arguments, moduleName, discover)
+        }
+        let rewritten = rewriteGenericAggregateSpellingImpl(spelling,
+            moduleName, discover)
+        if not discover or substitute { expression.literalValue = rewritten }
+    }
+    let valueScopeStart = g_genericAggregateValueNames.length()
+    if expression.kind == "Closure" {
+        var parameterIndex = 0
+        while parameterIndex < expression.arguments.length() {
+            g_genericAggregateValueNames.push(expression.arguments[parameterIndex].literalValue)
+            parameterIndex = parameterIndex + 1
+        }
+    }
+    var i = 0
+    while i < expression.operands.length() {
+        visitGenericAggregateExpressionImpl(expression.operands[i], moduleName,
+            parameters, arguments, discover, substitute, depth + 1)
+        i = i + 1
+    }
+    i = 0
+    while i < expression.arguments.length() {
+        visitGenericAggregateExpressionImpl(expression.arguments[i], moduleName,
+            parameters, arguments, discover, substitute, depth + 1)
+        i = i + 1
+    }
+    i = 0
+    while i < getUiSlotCount(expression) {
+        visitGenericAggregateBlockImpl(getUiSlotBlock(expression, i), moduleName,
+            parameters, arguments, discover, substitute, depth + 1)
+        i = i + 1
+    }
+    while g_genericAggregateValueNames.length() > valueScopeStart {
+        g_genericAggregateValueNames.pop()
+    }
+}
+
+fun visitGenericAggregateBlockImpl(block: BlockNode, moduleName: String,
+    parameters: Array<String>, arguments: Array<TypeRef>, discover: Bool,
+    substitute: Bool, depth: Int) r: Void {
+    if depth > 256 {
+        rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] block nesting exceeds lowering limit")
+    }
+    let scopeStart = g_genericAggregateValueNames.length()
+    var i = 0
+    while i < block.statements.length() {
+        let statement = block.statements[i]
+        var spelling = statement.variableType.typeName
+        if substitute {
+            spelling = substituteGenericAggregateSpellingImpl(spelling,
+                parameters, arguments, moduleName, discover)
+        }
+        let rewritten = rewriteGenericAggregateSpellingImpl(spelling,
+            moduleName, discover)
+        if not discover or substitute { statement.variableType.typeName = rewritten }
+        visitGenericAggregateExpressionImpl(statement.initializer, moduleName, parameters, arguments, discover, substitute, depth + 1)
+        visitGenericAggregateExpressionImpl(statement.returnValue, moduleName, parameters, arguments, discover, substitute, depth + 1)
+        visitGenericAggregateExpressionImpl(statement.expression, moduleName, parameters, arguments, discover, substitute, depth + 1)
+        visitGenericAggregateExpressionImpl(statement.condition, moduleName, parameters, arguments, discover, substitute, depth + 1)
+        visitGenericAggregateExpressionImpl(statement.loopCondition, moduleName, parameters, arguments, discover, substitute, depth + 1)
+        if statement.kind == "Let" or statement.kind == "Var" {
+            g_genericAggregateValueNames.push(statement.variableName)
+        }
+        let branchStart = g_genericAggregateValueNames.length()
+        if statement.kind == "IfLet" {
+            g_genericAggregateValueNames.push(statement.variableName)
+        }
+        visitGenericAggregateBlockImpl(statement.thenBranch, moduleName, parameters, arguments, discover, substitute, depth + 1)
+        while g_genericAggregateValueNames.length() > branchStart {
+            g_genericAggregateValueNames.pop()
+        }
+        visitGenericAggregateBlockImpl(statement.elseBranch, moduleName, parameters, arguments, discover, substitute, depth + 1)
+        if statement.kind == "ForIn" or statement.kind == "ParallelFor" {
+            g_genericAggregateValueNames.push(statement.variableName)
+        }
+        visitGenericAggregateBlockImpl(statement.loopBody, moduleName, parameters, arguments, discover, substitute, depth + 1)
+        while g_genericAggregateValueNames.length() > branchStart {
+            g_genericAggregateValueNames.pop()
+        }
+        i = i + 1
+    }
+    while g_genericAggregateValueNames.length() > scopeStart {
+        g_genericAggregateValueNames.pop()
+    }
+}
+
+fun visitGenericAggregateFunctionImpl(function: FunctionNode,
+    moduleName: String, parameters: Array<String>, arguments: Array<TypeRef>,
+    discover: Bool, substitute: Bool) r: Void {
+    let previousValueNames = g_genericAggregateValueNames
+    g_genericAggregateValueNames = Array<String>()
+    g_genericAggregateValueNames.push("this")
+    let previousOpenParameters = g_genericAggregateOpenParameters
+    let ownParameterCount = genericParameterCount(function.decorators)
+    if ownParameterCount > 0 {
+        let openParameters = Array<String>()
+        var p = 0
+        while p < previousOpenParameters.length() {
+            openParameters.push(previousOpenParameters[p])
+            p = p + 1
+        }
+        p = 0
+        while p < ownParameterCount {
+            let name = genericParameterNameAt(function.decorators, p)
+            var c = 0
+            while substitute and c < parameters.length() {
+                if name == parameters[c] {
+                    rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] shadowing generic method parameter is not supported: " + name)
+                }
+                c = c + 1
+            }
+            openParameters.push(name)
+            p = p + 1
+        }
+        g_genericAggregateOpenParameters = openParameters
+    }
+    var spelling = function.returnType.typeName
+    if substitute {
+        spelling = substituteGenericAggregateSpellingImpl(spelling,
+            parameters, arguments, moduleName, discover)
+    }
+    let rewritten = rewriteGenericAggregateSpellingImpl(spelling, moduleName, discover)
+    if not discover or substitute { function.returnType.typeName = rewritten }
+    var i = 0
+    while i < function.params.length() {
+        let parameter = function.params[i]
+        g_genericAggregateValueNames.push(parameter.name)
+        spelling = parameter.paramType.typeName
+        if substitute {
+            spelling = substituteGenericAggregateSpellingImpl(spelling,
+                parameters, arguments, moduleName, discover)
+        }
+        let rewrittenParameter = rewriteGenericAggregateSpellingImpl(spelling,
+            moduleName, discover)
+        if not discover or substitute { parameter.paramType.typeName = rewrittenParameter }
+        i = i + 1
+    }
+    visitGenericAggregateBlockImpl(function.body, moduleName, parameters,
+        arguments, discover, substitute, 0)
+    if ownParameterCount > 0 {
+        g_genericAggregateOpenParameters.free()
+        g_genericAggregateOpenParameters = previousOpenParameters
+    }
+    g_genericAggregateValueNames.free()
+    g_genericAggregateValueNames = previousValueNames
+}
+
+fun visitGenericAggregateClassImpl(classNode: ClassNode, moduleName: String,
+    parameters: Array<String>, arguments: Array<TypeRef>, discover: Bool,
+    substitute: Bool) r: Void {
+    var parent = classNode.parentName
+    if substitute {
+        parent = substituteGenericAggregateSpellingImpl(parent, parameters, arguments, moduleName, discover)
+    }
+    let rewrittenParent = rewriteGenericAggregateSpellingImpl(parent, moduleName, discover)
+    if not discover or substitute { classNode.parentName = rewrittenParent }
+    var i = 0
+    while i < classNode.fields.length() {
+        let field = classNode.fields[i]
+        var spelling = field.paramType.typeName
+        if substitute {
+            spelling = substituteGenericAggregateSpellingImpl(spelling,
+                parameters, arguments, moduleName, discover)
+        }
+        let rewritten = rewriteGenericAggregateSpellingImpl(spelling, moduleName, discover)
+        if not discover or substitute { field.paramType.typeName = rewritten }
+        i = i + 1
+    }
+    i = 0
+    while i < classNode.methods.length() {
+        visitGenericAggregateFunctionImpl(classNode.methods[i], moduleName,
+            parameters, arguments, discover, substitute)
+        i = i + 1
+    }
+}
+
+fun visitGenericAggregateProgramImpl(program: ProgramNode, moduleName: String,
+    discover: Bool) r: Void {
+    let empty = Array<String>()
+    let emptyArguments = Array<TypeRef>()
+    var i = 0
+    while i < program.items.length() {
+        let item = program.items[i]
+        if item.itemType == "Class" {
+            let previousOpenParameters = g_genericAggregateOpenParameters
+            let openParameters = Array<String>()
+            var p = 0
+            while p < genericParameterCount(item.classNode.decorators) {
+                openParameters.push(genericParameterNameAt(item.classNode.decorators, p))
+                p = p + 1
+            }
+            g_genericAggregateOpenParameters = openParameters
+            visitGenericAggregateClassImpl(item.classNode, moduleName, empty,
+                emptyArguments, discover, false)
+            g_genericAggregateOpenParameters = previousOpenParameters
+            openParameters.free()
+        } else if item.itemType == "Function" {
+            if discover and genericParameterCount(item.function.decorators) > 0 {
+                recordGenericAggregateFunctionBodyImpl(item.function, moduleName)
+            }
+            visitGenericAggregateFunctionImpl(item.function, moduleName, empty,
+                emptyArguments, discover, false)
+        } else if item.itemType == "GlobalVar" {
+            let spelling = semanticGlobalEncodedType(item.visibility)
+            let rewritten = rewriteGenericAggregateSpellingImpl(spelling, moduleName, discover)
+            if not discover and rewritten != spelling {
+                item.visibility = item.visibility.substring(0, 1) + rewritten +
+                    item.visibility.substring(1 + spelling.length(), item.visibility.length())
+            }
+        }
+        i = i + 1
+    }
+    empty.free()
+    emptyArguments.free()
+}
+
+fun instantiateGenericAggregateClassImpl(item: ItemNode,
+    demand: GenericAggregateDemand) r: Void {
+    // The caller reparses the defining module. Never shallow-copy AST nodes:
+    // mutating a clone's parameter or body must not alter the erased template.
+    let classNode = item.classNode
+    var methodIndex = 0
+    while methodIndex < classNode.methods.length() {
+        let method = classNode.methods[methodIndex]
+        if method.isExtern or method.hasDecorator("export") {
+            rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] concrete class specialization cannot change an extern/exported method ABI: " + method.name)
+        }
+        methodIndex = methodIndex + 1
+    }
+    let parameters = Array<String>()
+    var i = 0
+    while i < genericParameterCount(classNode.decorators) {
+        parameters.push(genericParameterNameAt(classNode.decorators, i))
+        i = i + 1
+    }
+    if parameters.length() != demand.arguments.length() {
+        rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] concrete class parameter mismatch")
+    }
+    visitGenericAggregateClassImpl(classNode, demand.owner, parameters,
+        demand.arguments, true, true)
+    parameters.free()
+    let decorators = Array<AnnotationNode>()
+    i = 0
+    while i < classNode.decorators.length() {
+        let decorator = classNode.decorators[i]
+        if decorator.name != "generic_parameter" { decorators.push(decorator) }
+        i = i + 1
+    }
+    classNode.decorators = decorators
+    classNode.name = demand.name
+    item.name = demand.name
+    demand.item = item
+}
+
+fun appendGenericAggregateClassesImpl(program: ProgramNode,
+    moduleName: String) r: Void {
+    var i = 0
+    while i < g_genericAggregateDemands.length() {
+        let demand = g_genericAggregateDemands[i]
+        if demand.owner == moduleName { program.items.push(demand.item) }
+        i = i + 1
+    }
+}

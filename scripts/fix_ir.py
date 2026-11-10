@@ -713,18 +713,19 @@ def fix_result_and_file_runtime_abi(content):
         if in_function:
             func_buf.append(line)
             if line.strip() == '}':
-                result.extend(_fix_result_ok_calls_in_function(func_buf))
+                result.extend(_fix_result_constructor_calls_in_function(func_buf))
                 in_function = False
                 func_buf = []
             continue
         result.append(line)
 
     if func_buf:
-        result.extend(_fix_result_ok_calls_in_function(func_buf))
+        result.extend(_fix_result_constructor_calls_in_function(func_buf))
     return '\n'.join(result)
 
 
-def _fix_result_ok_calls_in_function(func_lines):
+def _fix_result_constructor_calls_in_function(func_lines):
+    """Normalize erased payloads without removing the owning Result constructor."""
     used_reg_nums = _collect_function_reg_nums(func_lines)
     next_reg_num = max(used_reg_nums) + 1 if used_reg_nums else 1
 
@@ -757,7 +758,7 @@ def _fix_result_ok_calls_in_function(func_lines):
             continue
 
         m = re.match(
-            r'(\s*)(%\d+)\s*=\s*(?:tail\s+)?call\s+i64\s+@Ok\((.*)\)(.*)$',
+            r'(\s*)(%\d+)\s*=\s*(tail\s+)?call\s+i64\s+@(Ok|Err)\((.*)\)(.*)$',
             line,
         )
         if not m:
@@ -766,8 +767,10 @@ def _fix_result_ok_calls_in_function(func_lines):
 
         indent = m.group(1)
         out_reg = m.group(2)
-        args = _split_args(m.group(3))
-        rest = m.group(4)
+        tail = m.group(3) or ''
+        constructor = m.group(4)
+        args = _split_args(m.group(5))
+        rest = m.group(6)
         if len(args) != 1:
             fixed_lines.append(line)
             continue
@@ -780,40 +783,31 @@ def _fix_result_ok_calls_in_function(func_lines):
         arg_type = am.group(1)
         arg_value = am.group(2).strip()
         if arg_type == 'i64':
-            fixed_lines.append(f'{indent}{out_reg} = add i64 {arg_value}, 0{rest}')
+            fixed_lines.append(line)
             continue
+        payload = next_temp_reg()
         if arg_type == 'ptr':
-            if arg_value == 'null':
-                fixed_lines.append(f'{indent}{out_reg} = add i64 0, 0{rest}')
-            else:
-                fixed_lines.append(f'{indent}{out_reg} = ptrtoint ptr {arg_value} to i64{rest}')
-            continue
-        if arg_type == 'i1':
-            fixed_lines.append(f'{indent}{out_reg} = zext i1 {arg_value} to i64{rest}')
-            continue
-        if arg_type in ('i8', 'i16', 'i32'):
-            fixed_lines.append(f'{indent}{out_reg} = sext {arg_type} {arg_value} to i64{rest}')
-            continue
-        if arg_type == '%SeenString':
+            fixed_lines.append(f'{indent}{payload} = ptrtoint ptr {arg_value} to i64')
+        elif arg_type in ('i1', 'i8', 'i16', 'i32'):
+            fixed_lines.append(f'{indent}{payload} = zext {arg_type} {arg_value} to i64')
+        elif arg_type == '%SeenString':
             slot_reg = next_temp_reg()
             fixed_lines.append(f'{indent}{slot_reg} = call ptr @seen_checked_malloc(i64 16)')
             fixed_lines.append(f'{indent}store %SeenString {arg_value}, ptr {slot_reg}')
-            fixed_lines.append(f'{indent}{out_reg} = ptrtoint ptr {slot_reg} to i64{rest}')
-            continue
-        if arg_type == 'double':
-            slot_reg = next_temp_reg()
-            fixed_lines.append(f'{indent}{slot_reg} = call ptr @seen_checked_malloc(i64 8)')
-            fixed_lines.append(f'{indent}store double {arg_value}, ptr {slot_reg}')
-            fixed_lines.append(f'{indent}{out_reg} = ptrtoint ptr {slot_reg} to i64{rest}')
-            continue
-        if arg_type == 'float':
-            slot_reg = next_temp_reg()
-            fixed_lines.append(f'{indent}{slot_reg} = call ptr @seen_checked_malloc(i64 4)')
-            fixed_lines.append(f'{indent}store float {arg_value}, ptr {slot_reg}')
-            fixed_lines.append(f'{indent}{out_reg} = ptrtoint ptr {slot_reg} to i64{rest}')
+            fixed_lines.append(f'{indent}{payload} = ptrtoint ptr {slot_reg} to i64')
+        elif arg_type == 'double':
+            fixed_lines.append(f'{indent}{payload} = bitcast double {arg_value} to i64')
+        elif arg_type == 'float':
+            bits_reg = next_temp_reg()
+            fixed_lines.append(f'{indent}{bits_reg} = bitcast float {arg_value} to i32')
+            fixed_lines.append(f'{indent}{payload} = zext i32 {bits_reg} to i64')
+        else:
+            fixed_lines.append(line)
             continue
 
-        fixed_lines.append(line)
+        fixed_lines.append(
+            f'{indent}{out_reg} = {tail}call i64 @{constructor}(i64 {payload}){rest}'
+        )
     return fixed_lines
 
 
@@ -3013,8 +3007,9 @@ RUNTIME_SEENSTRING_RETURNS = {
     # I/O
     '__ReadFile', '__FileError', '__GetEnv', '__FloatToString',
     '__ReadStdinLine', '__ReadStdinBytes', 'readText',
-    # Option/Result
-    'Option_unwrap_string', 'Result_unwrapErr',
+    # Concrete runtime Option helper. Generic Seen Result methods return an
+    # erased word; a String payload is unboxed by the caller, not this table.
+    'Option_unwrap_string',
     # Vec
     'Vec_get_str', 'Vec_pop_str', 'Vec_remove_str', 'Vec_first_str', 'Vec_last_str',
     # HashMap

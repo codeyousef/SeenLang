@@ -1,0 +1,9 @@
+manifest-version = 1
+
+[project]
+name = "record_consumer"
+version = "0.1.0"
+language = "en"
+
+[dependencies]
+abi_records = { artifact = "../artifact" }

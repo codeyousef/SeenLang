@@ -1,0 +1,128 @@
+/// Explicit cross-ring CUDA transport. Same-device copies use the existing SDK
+/// ABI; distinct devices require an actively owned, native-capable peer link.
+import core.result.{Result, Ok, Err}
+import core.option.{Option}
+import core.operation_context.{OperationContext}
+import compute.error.{GpuError, gpuFailure}
+import compute.operation.{gpuCheckOperation}
+import compute.cuda_peer.{GpuCudaPeerLink, gpuCudaPeerFailure, cudaMemcpyPeerAsync}
+import compute.cuda_staging.{GpuCudaStagingTicket, gpuCudaStagingFailure, gpuCudaStagingSpan}
+import accelerator.cuda.mod.{CudaStreamLaunchToken, seen_cuda_set_device, seen_cuda_stream_borrow_launch_token, seen_cuda_memcpy_async, seen_cuda_event_record}
+import accelerator.cuda.error.{CudaNativeStatus, cudaSucceeded}
+import memory.allocation.{allocationBudgetAvailable}
+
+@move
+class GpuCudaDeviceTransfer {
+    var source: GpuCudaStagingTicket
+    var destination: GpuCudaStagingTicket
+    var sourceOffset: UInt64
+    var link: Option<GpuCudaPeerLink>
+    var started: Bool
+    var pending: Bool
+    var closed: Bool
+    var failed: Bool
+    var failedStatus: Int32
+    var failedNative: Int32
+    var sequence: UInt64
+    /// Option container transfers on every return, but its link payload remains
+    /// borrowed. Tickets remain borrowed and cannot close while this owner lives.
+    static fun prepare(borrow destination: GpuCudaStagingTicket, borrow source: GpuCudaStagingTicket,
+        sourceOffset: UInt64, link: Option<GpuCudaPeerLink>, operation: OperationContext) r: Result<GpuCudaDeviceTransfer, GpuError> {
+        if not source.retired() or not destination.reserved() or source.core == destination.core or
+            source.core.poisoned or destination.core.poisoned or not source.core.slots[source.buffer].deviceReady or
+            sourceOffset > source.bytes or destination.bytes > source.bytes - sourceOffset or destination.bytes > (16777216 as UInt64) {
+            link.free(); return Err<GpuCudaDeviceTransfer, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.transfer.prepare", "transfer requires completed valid source, distinct reserved ring and bounded initialized source extent"))
+        }
+        let from = source.core.slots[source.buffer]; let to = destination.core.slots[destination.buffer]
+        if from.readers >= 256 or to.readers != 0 or not allocationBudgetAvailable(8192) {
+            link.free(); return Err<GpuCudaDeviceTransfer, GpuError>(gpuFailure("gpu.limit", "gpu.cuda.transfer.prepare", "transfer borrower or metadata ceiling reached"))
+        }
+        if from.device.device != to.device.device {
+            if not link.isSome() { link.free(); return Err<GpuCudaDeviceTransfer, GpuError>(gpuFailure("gpu.unsupported_capability", "gpu.cuda.transfer.prepare", "distinct devices require explicit enabled native peer access; no host fallback")) }
+            let peer = link.unwrap()
+            if peer.closed or not peer.enabled or peer.sourceDevice != from.device.device or peer.destinationDevice != to.device.device or peer.borrowers >= 256 {
+                link.free(); return Err<GpuCudaDeviceTransfer, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.transfer.prepare", "peer link is closed, foreign, inactive or saturated"))
+            }
+        } else if link.isSome() { link.free(); return Err<GpuCudaDeviceTransfer, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.transfer.prepare", "same-device copies must not claim a peer route")) }
+        let checked = gpuCheckOperation(operation, "gpu.cuda.transfer.prepare")
+        if checked.isErr() { let error = checked.unwrapErr(); checked.releaseContainer(); link.free(); return Err<GpuCudaDeviceTransfer, GpuError>(error) }; checked.releaseContainer()
+        from.readers = from.readers + 1; to.readers = to.readers + 1
+        if link.isSome() { link.unwrap().borrowers = link.unwrap().borrowers + 1 }
+        return Ok<GpuCudaDeviceTransfer, GpuError>(GpuCudaDeviceTransfer{source: source, destination: destination, sourceOffset: sourceOffset, link: link, started: false, pending: false, closed: false, failed: false, failedStatus: 0 as Int32, failedNative: 0 as Int32, sequence: 0 as UInt64})
+    }
+    fun failure() r: GpuError {
+        if this.failedNative != (0 as Int32) { return gpuCudaPeerFailure(this.failedNative, "gpu.cuda.transfer", this.sequence) }
+        let status = CudaNativeStatus{code: this.failedStatus, nativeCode: this.failedNative, deviceOrdinal: this.destination.core.stream.device, maturity: 0 as Int32, operation: null as *const Char, message: null as *const Char}
+        return gpuCudaStagingFailure(status, "gpu.cuda.transfer", this.sequence)
+    }
+    fun start(operation: OperationContext) r: Result<Bool, GpuError> {
+        if this.closed or this.started or not this.source.retired() or not this.destination.reserved() or this.source.core.poisoned or this.destination.core.poisoned {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.transfer.start", "transfer requires fresh retained source and destination"))
+        }
+        if this.link.isSome() {
+            let peer = this.link.unwrap()
+            if peer.closed or not peer.enabled or peer.sourceDevice != this.source.core.stream.device or peer.destinationDevice != this.destination.core.stream.device {
+                return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.transfer.start", "peer route is not confirmed active for the retained devices"))
+            }
+        }
+        let checked = gpuCheckOperation(operation, "gpu.cuda.transfer.start"); if checked.isErr() { return checked }; checked.releaseContainer()
+        let destination = this.destination; let from = this.source.core.slots[this.source.buffer]; let to = destination.core.slots[destination.buffer]
+        let selected = seen_cuda_set_device(destination.core.stream.device)
+        if not cudaSucceeded(selected) { return Err<Bool, GpuError>(gpuCudaStagingFailure(selected, "gpu.cuda.transfer.start", 0 as UInt64)) }
+        var token = CudaStreamLaunchToken{abiVersion: 0 as UInt32, flags: 0 as UInt32, deviceOrdinal: -1 as Int32, reserved: 0 as UInt32, nativeStream: 0 as UInt64, generation: 0 as UInt64}
+        if this.link.isSome() {
+            let borrowed = seen_cuda_stream_borrow_launch_token(destination.core.stream.handle, destination.core.stream.device, &token)
+            if not cudaSucceeded(borrowed) { return Err<Bool, GpuError>(gpuCudaStagingFailure(borrowed, "gpu.cuda.transfer.start", 0 as UInt64)) }
+            if token.abiVersion != (1 as UInt32) or token.flags != (1 as UInt32) or token.deviceOrdinal != destination.core.stream.device or token.nativeStream == (0 as UInt64) or token.generation == (0 as UInt64) {
+                return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.transfer.start", "peer transfer requires a live non-capturing borrowed native stream"))
+            }
+        }
+        let input = ((from.device.data as UInt64) + this.sourceOffset) as *const Void
+        if not gpuCudaStagingSpan(input as *const UInt8, destination.bytes) or not gpuCudaStagingSpan(to.device.data as *const UInt8, destination.bytes) {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.transfer.start", "transfer native address extent overflows"))
+        }
+        let admitted = gpuCheckOperation(operation, "gpu.cuda.transfer.start"); if admitted.isErr() { return admitted }; admitted.releaseContainer()
+        let signal = destination.slice.nextSignal()
+        if signal.isErr() { let error = signal.unwrapErr(); signal.releaseContainer(); return Err<Bool, GpuError>(error) }
+        let sequence = signal.unwrap(); signal.releaseContainer()
+        let recorded = destination.slice.submitted(sequence); if recorded.isErr() { return recorded }; recorded.releaseContainer()
+        this.started = true; this.pending = true; this.sequence = sequence
+        to.sequence = sequence; to.direction = 3; to.pending = true; to.source = -1
+        if this.link.isSome() {
+            let copied = cudaMemcpyPeerAsync(to.device.data, to.device.device, input, from.device.device, destination.bytes, token.nativeStream as *Void)
+            if copied != (0 as Int32) { this.failed = true; this.failedNative = copied }
+        } else {
+            let copied = seen_cuda_memcpy_async(to.device.data, input, destination.bytes, 3 as Int32, destination.core.stream.handle)
+            if not cudaSucceeded(copied) { this.failed = true; this.failedStatus = copied.code; this.failedNative = copied.nativeCode }
+        }
+        let event = seen_cuda_event_record(to.event.handle, destination.core.stream.handle); to.recorded = cudaSucceeded(event)
+        if not to.recorded and not this.failed { this.failed = true; this.failedStatus = event.code; this.failedNative = event.nativeCode }
+        if this.failed { destination.core.poisoned = true; return Err<Bool, GpuError>(this.failure()) }
+        let observed = gpuCheckOperation(operation, "gpu.cuda.transfer.start")
+        if observed.isErr() { let error = observed.unwrapErr(); observed.releaseContainer(); error.progress = sequence; return Err<Bool, GpuError>(error) }; observed.releaseContainer()
+        return Ok<Bool, GpuError>(true)
+    }
+    /// Nonblocking post-admission observation ignores cancellation. Failed native
+    /// work retains both tickets/link until actual event/private-stream retirement.
+    fun poll() r: Result<Bool, GpuError> {
+        if this.closed or not this.started { return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.cuda.transfer.poll", "transfer has no live admitted signal")) }
+        let observed = this.destination.poll()
+        if not this.destination.core.slots[this.destination.buffer].pending { this.pending = false }
+        if this.failed {
+            let error = this.failure()
+            if observed.isErr() { error.causes.push(observed.unwrapErr()) }
+            observed.releaseContainer(); return Err<Bool, GpuError>(error)
+        }
+        return observed
+    }
+    fun close() r: Result<Bool, GpuError> {
+        if this.closed { return Ok<Bool, GpuError>(false) }
+        if this.pending { return Err<Bool, GpuError>(gpuFailure("gpu.busy", "gpu.cuda.transfer.close", "native transfer still retains both devices")) }
+        let from = this.source.core.slots[this.source.buffer]; let to = this.destination.core.slots[this.destination.buffer]
+        if from.readers <= 0 or to.readers <= 0 { abort("CUDA transfer ticket borrower underflow") }
+        from.readers = from.readers - 1; to.readers = to.readers - 1
+        if this.link.isSome() { let peer = this.link.unwrap(); if peer.borrowers <= 0 { abort("CUDA transfer peer borrower underflow") }; peer.borrowers = peer.borrowers - 1 }
+        this.link.free(); this.closed = true; return Ok<Bool, GpuError>(true)
+    }
+    fun release() r: Result<Bool, GpuError> { let closed = this.close(); if closed.isErr() { return closed }; closed.releaseContainer(); this.free(); return Ok<Bool, GpuError>(true) }
+}

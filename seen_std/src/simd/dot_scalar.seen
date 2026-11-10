@@ -1,0 +1,34 @@
+/// Shared scalar reference blocks. No allocation or escaping pointer.
+
+fun bf16Float(bits: UInt16) r: Float32 {
+    var expanded = (bits as UInt32) << (16 as UInt32)
+    return ptr_deref_f32((&expanded) as Int)
+}
+
+@simd_target("scalar")
+@no_vectorize
+fun dotF32Scalar(left: *Float32, right: *Float32, count: UInt64) r: Float32 {
+    var value = 0.0 as Float32; var i = 0 as UInt64
+    while i < count { value = value + left[i] * right[i]; i = i + (1 as UInt64) }
+    return value
+}
+
+@simd_target("scalar")
+@no_vectorize
+fun dotU8S8Scalar(left: *UInt8, right: *Int8, count: UInt64) r: Int64 {
+    var value = 0 as Int64; var i = 0 as UInt64
+    while i < count {
+        value = value + (left[i] as Int64) * (right[i] as Int64); i = i + (1 as UInt64)
+    }
+    return value
+}
+
+@simd_target("scalar")
+@no_vectorize
+fun dotBf16Scalar(left: *UInt16, right: *UInt16, count: UInt64) r: Float32 {
+    var value = 0.0 as Float32; var i = 0 as UInt64
+    while i < count {
+        value = value + bf16Float(left[i]) * bf16Float(right[i]); i = i + (1 as UInt64)
+    }
+    return value
+}

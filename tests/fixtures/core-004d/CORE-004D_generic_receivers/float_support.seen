@@ -1,0 +1,8 @@
+@nondeterministic
+@type_alias("Float")
+class Danger {}
+
+@nondeterministic
+fun makeDanger() r: Danger {
+    return 1.0 as Danger
+}

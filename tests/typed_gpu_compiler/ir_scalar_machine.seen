@@ -1,0 +1,199 @@
+/// Test-only execution of verified integer/bool IR for a single invocation.
+/// Barriers are observable events in this one-lane model. Float/vector math and
+/// subgroups are explicitly unsupported; this is never a hardware fallback.
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrInstruction}
+import codegen.gpu_ir_verify.{verifyGpuIr}
+import codegen.gpu_ir_ops.{GPU_IR_PARAM, GPU_IR_INT, GPU_IR_FLOAT, GPU_IR_BOOL, GPU_IR_BUILTIN, GPU_IR_EXTRACT,
+    GPU_IR_VECTOR, GPU_IR_CAST, GPU_IR_UNARY, GPU_IR_BINARY, GPU_IR_INTRINSIC, GPU_IR_LENGTH, GPU_IR_LOAD,
+    GPU_IR_STORE, GPU_IR_UNIFORM, GPU_IR_LOCAL_INIT, GPU_IR_LOCAL_LOAD, GPU_IR_LOCAL_STORE, GPU_IR_IF,
+    GPU_IR_WHILE, GPU_IR_FOR, GPU_IR_INDUCTION, GPU_IR_CONDITION, GPU_IR_BREAK, GPU_IR_CONTINUE,
+    GPU_IR_CALL, GPU_IR_RETURN, GPU_IR_SHARED, GPU_IR_ATOMIC_LOAD, GPU_IR_ATOMIC_STORE, GPU_IR_ATOMIC_RMW,
+    GPU_IR_ATOMIC_COMPARE, GPU_IR_BARRIER, GPU_IR_MEMORY_BARRIER, GPU_IR_SUBGROUP, GPU_IR_FAULT,
+    GPU_IR_SELECT, GPU_IR_BITCAST, GPU_IR_IF_VALUE, GPU_IR_YIELD_VALUE, GPU_IR_MAX_LOOP_ITERATIONS,
+    GPU_IR_UNPACK, GPU_IR_PACK, GPU_IR_SPECIALIZE, GPU_IR_COOP_LOAD, GPU_IR_COOP_FILL}
+import ir_scalar_state.{IrScalarState, IrScalarFrame, irScalarNormalize, irScalarBinary}
+import codegen.gpu_precision_formats.{gpuPrecisionBits, gpuPrecisionWordLanes, gpuPrecisionValueType}
+
+fun irScalarSupported(borrow module: GpuIrModule) r: Bool {
+    var i = 0
+    while i < module.functions.length() {
+        let function = module.functions[i]
+        if function.registerCount > 4096 or function.localCount > 4096 or function.returnType > 3 { return false }
+        if function.kernel and (function.workgroupX != 1 or function.workgroupY != 1 or function.workgroupZ != 1) { return false }
+        var j = 0
+        while j < function.parameterTypes.length() {
+            if function.parameterTypes[j] % 1000 > 3 { return false }; j = j + 1
+        }
+        j = 0
+        while j < function.blocks.length() {
+            let block = function.blocks[j]; var k = 0
+            while k < block.instructions.length() {
+                let op = block.instructions[k]
+                if op.opcode == GPU_IR_FLOAT or op.opcode == GPU_IR_VECTOR or op.opcode == GPU_IR_SUBGROUP { return false }
+                if op.opcode >= GPU_IR_COOP_LOAD and op.opcode <= GPU_IR_COOP_FILL { return false }
+                if (op.opcode == GPU_IR_UNPACK or op.opcode == GPU_IR_PACK) and gpuPrecisionValueType(op.immediate) == 4 { return false }
+                if op.opcode == GPU_IR_BUILTIN {
+                    if op.immediate >= 6 and op.immediate <= 8 { return false }
+                } else if op.typeCode % 1000 > 3 { return false }
+                if op.opcode == GPU_IR_SHARED and op.immediate > 4096 { return false }
+                k = k + 1
+            }
+            j = j + 1
+        }
+        i = i + 1
+    }
+    return true
+}
+fun irScalarPacked(state: IrScalarState, frame: IrScalarFrame, borrow op: GpuIrInstruction) r: Void {
+    let word = frame.value(op.operands[0]); let lane = frame.value(op.operands[1]); let bits = gpuPrecisionBits(op.immediate)
+    if lane < 0 or lane >= gpuPrecisionWordLanes(op.immediate) {
+        state.faults = state.faults + 1; var result = 0; if op.opcode == GPU_IR_PACK { result = word }; frame.put(op.result, result); return
+    }
+    let shift = lane * bits; let mask = (1 << bits) - 1; var value = 0
+    if op.opcode == GPU_IR_UNPACK {
+        value = (word >> shift) & mask
+        if op.typeCode == 2 and value >= (1 << (bits - 1)) { value = value - (1 << bits) }
+    } else {
+        let field = (frame.value(op.operands[2]) & mask) << shift
+        value = (word & ~(mask << shift)) | field
+    }
+    frame.put(op.result, irScalarNormalize(value, op.typeCode))
+}
+fun irScalarAtomic(state: IrScalarState, frame: IrScalarFrame, borrow op: GpuIrInstruction) r: Void {
+    let resource = frame.value(op.operands[0]); let index = frame.value(op.operands[1])
+    let typeCode = frame.types[op.operands[0]] % 1000
+    let beforeFaults = state.faults; let old = irScalarNormalize(state.read(resource, index), typeCode)
+    if not state.valid or state.faults != beforeFaults { frame.put(op.result, 0); return }
+    var next = old
+    if op.opcode != GPU_IR_ATOMIC_LOAD {
+        let value = irScalarNormalize(frame.value(op.operands[2]), typeCode)
+        if op.opcode == GPU_IR_ATOMIC_STORE or (op.opcode == GPU_IR_ATOMIC_RMW and op.immediate == 1) { next = value }
+        if op.opcode == GPU_IR_ATOMIC_COMPARE {
+            if old == value { next = irScalarNormalize(frame.value(op.operands[3]), typeCode) }
+        }
+        if op.opcode == GPU_IR_ATOMIC_RMW {
+            if op.immediate == 2 { next = irScalarBinary(state, 1, old, value, typeCode) }
+            if op.immediate == 3 { next = irScalarBinary(state, 2, old, value, typeCode) }
+            if op.immediate == 4 and value < old { next = value }; if op.immediate == 5 and value > old { next = value }
+            if op.immediate == 6 { next = old & value }; if op.immediate == 7 { next = old | value }; if op.immediate == 8 { next = old ^ value }
+        }
+        state.write(resource, index, irScalarNormalize(next, typeCode))
+    }
+    frame.put(op.result, old)
+}
+fun irScalarValue(state: IrScalarState, frame: IrScalarFrame, borrow op: GpuIrInstruction, induction: Int) r: Void {
+    let opcode = op.opcode; var value = 0
+    if opcode == GPU_IR_PARAM { value = frame.arguments[op.immediate] }
+    else if opcode == GPU_IR_SPECIALIZE { value = frame.value(op.operands[0]) }
+    else if opcode == GPU_IR_UNPACK or opcode == GPU_IR_PACK { irScalarPacked(state, frame, op); return }
+    else if opcode == GPU_IR_INT { value = op.text.toInt() }
+    else if opcode == GPU_IR_BOOL { if op.text == "true" { value = 1 } }
+    else if opcode == GPU_IR_BUILTIN {
+        if op.immediate == 4 or op.immediate == 9 {
+            frame.registers[op.result * 4] = 1; frame.registers[op.result * 4 + 1] = 1; frame.registers[op.result * 4 + 2] = 1
+        }
+        return
+    } else if opcode == GPU_IR_EXTRACT { value = frame.registers[op.operands[0] * 4 + op.immediate] }
+    else if opcode == GPU_IR_CAST or opcode == GPU_IR_BITCAST or opcode == GPU_IR_UNIFORM { value = frame.value(op.operands[0]) }
+    else if opcode == GPU_IR_UNARY {
+        let argument = frame.value(op.operands[0])
+        if op.immediate == 1 { value = -argument }
+        if op.immediate == 2 and argument == 0 { value = 1 }; if op.immediate == 3 { value = ~argument }
+    } else if opcode == GPU_IR_BINARY {
+        value = irScalarBinary(state, op.immediate, frame.value(op.operands[0]), frame.value(op.operands[1]), frame.types[op.operands[0]])
+    } else if opcode == GPU_IR_INTRINSIC {
+        value = frame.value(op.operands[0])
+        if op.immediate <= 3 {
+            let second = frame.value(op.operands[1])
+            if op.immediate == 1 and second < value { value = second }
+            if op.immediate == 2 and second > value { value = second }
+            if op.immediate == 3 {
+                if value < second { value = second }; let third = frame.value(op.operands[2]); if value > third { value = third }
+            }
+        } else if op.immediate == 4 and value < 0 { value = -value }
+    } else if opcode == GPU_IR_LENGTH {
+        let resource = frame.value(op.operands[0])
+        if resource < 0 or resource >= state.buffers.length() { state.fail("witness.binding"); return }; value = state.buffers[resource].length()
+    } else if opcode == GPU_IR_LOAD { value = state.read(frame.value(op.operands[0]), frame.value(op.operands[1])) }
+    else if opcode == GPU_IR_STORE {
+        state.write(frame.value(op.operands[0]), frame.value(op.operands[1]),
+            irScalarNormalize(frame.value(op.operands[2]), frame.types[op.operands[0]] % 1000)); return
+    } else if opcode == GPU_IR_LOCAL_INIT or opcode == GPU_IR_LOCAL_STORE { frame.locals[op.immediate] = frame.value(op.operands[0]); return }
+    else if opcode == GPU_IR_LOCAL_LOAD { value = frame.locals[op.immediate] }
+    else if opcode == GPU_IR_INDUCTION { value = induction }
+    else if opcode == GPU_IR_SHARED {
+        let buffer = Array<Int>(); var i = 0
+        while i < op.immediate { buffer.push(0); i = i + 1 }; value = state.addBuffer(buffer)
+    } else if opcode >= GPU_IR_ATOMIC_LOAD and opcode <= GPU_IR_ATOMIC_COMPARE { irScalarAtomic(state, frame, op); return }
+    else if opcode == GPU_IR_BARRIER { state.barriers = state.barriers + 1; return }
+    else if opcode == GPU_IR_MEMORY_BARRIER { state.fences = state.fences + 1; return }
+    else if opcode == GPU_IR_FAULT { state.faults = state.faults + 1; return }
+    else if opcode == GPU_IR_SELECT { value = frame.value(op.operands[2]); if frame.value(op.operands[0]) != 0 { value = frame.value(op.operands[1]) } }
+    else { state.fail("witness.unsupported"); return }
+    frame.put(op.result, irScalarNormalize(value, op.typeCode))
+}
+fun irScalarBlock(borrow module: GpuIrModule, state: IrScalarState, frame: IrScalarFrame, blockIndex: Int, induction: Int, depth: Int) r: Void {
+    let function = module.functions[frame.functionIndex]; let block = function.blocks[blockIndex]; var i = 0
+    while i < block.instructions.length() and frame.signal == 0 and state.valid {
+        if not state.step() { return }; let op = block.instructions[i]
+        if op.opcode == GPU_IR_RETURN or op.opcode == GPU_IR_CONDITION or op.opcode == GPU_IR_YIELD_VALUE {
+            frame.signal = 1; if op.opcode == GPU_IR_CONDITION { frame.signal = 4 }; if op.opcode == GPU_IR_YIELD_VALUE { frame.signal = 5 }
+            frame.transferred = 0; if op.operands.length() != 0 { frame.transferred = frame.value(op.operands[0]) }
+        } else if op.opcode == GPU_IR_BREAK { frame.signal = 2 }
+        else if op.opcode == GPU_IR_CONTINUE { frame.signal = 3 }
+        else if op.opcode == GPU_IR_IF or op.opcode == GPU_IR_IF_VALUE {
+            var child = op.rightBlock; if frame.value(op.operands[0]) != 0 { child = op.leftBlock }
+            irScalarBlock(module, state, frame, child, induction, depth)
+            if op.opcode == GPU_IR_IF_VALUE and state.valid {
+                if frame.signal != 5 { state.fail("witness.control"); return }; frame.put(op.result, frame.transferred); frame.signal = 0
+            }
+        } else if op.opcode == GPU_IR_WHILE or op.opcode == GPU_IR_FOR {
+            irScalarLoop(module, state, frame, op, depth)
+        } else if op.opcode == GPU_IR_CALL {
+            if depth >= 15 { state.fail("witness.limit"); return }
+            let arguments = Array<Int>(); var j = 0
+            while j < op.operands.length() { arguments.push(frame.value(op.operands[j])); j = j + 1 }
+            let called = IrScalarFrame.create(module.functions[op.immediate], op.immediate, arguments); arguments.free()
+            irScalarBlock(module, state, called, 0, 0, depth + 1)
+            if state.valid { frame.put(op.result, called.transferred) }; called.release()
+        } else { irScalarValue(state, frame, op, induction) }
+        i = i + 1
+    }
+}
+fun irScalarLoop(borrow module: GpuIrModule, state: IrScalarState, frame: IrScalarFrame, borrow op: GpuIrInstruction, depth: Int) r: Void {
+    var iteration = 0; var current = 0; var end = 0
+    if op.opcode == GPU_IR_FOR { current = frame.value(op.operands[0]); end = frame.value(op.operands[1]) }
+    while state.valid and frame.signal == 0 {
+        if not state.step() { return }
+        if op.opcode == GPU_IR_FOR { if current >= end { return } }
+        else {
+            irScalarBlock(module, state, frame, op.leftBlock, 0, depth)
+            if not state.valid { return }; if frame.signal != 4 { state.fail("witness.control"); return }
+            let condition = frame.transferred; frame.signal = 0; if condition == 0 { return }
+        }
+        if iteration >= GPU_IR_MAX_LOOP_ITERATIONS { state.faults = state.faults + 1; return }; iteration = iteration + 1
+        var body = op.leftBlock; if op.opcode == GPU_IR_WHILE { body = op.rightBlock }
+        irScalarBlock(module, state, frame, body, current, depth)
+        if frame.signal == 1 or not state.valid { return }
+        if frame.signal == 2 { frame.signal = 0; return }
+        if frame.signal == 3 { frame.signal = 0 }
+        if op.opcode == GPU_IR_FOR { current = current + 1 }
+    }
+}
+fun runIrScalarWitness(borrow module: GpuIrModule, state: IrScalarState, entry: Int, arguments: Array<Int>) r: Bool {
+    if state.remaining < 0 or state.remaining > 1000000 { state.fail("witness.limit"); return false }
+    let validation = verifyGpuIr(module)
+    if not validation.valid { state.fail("witness.invalid_ir"); validation.release(); return false }; validation.release()
+    if not irScalarSupported(module) { state.fail("witness.unsupported"); return false }
+    if entry < 0 or entry >= module.functions.length() { state.fail("witness.binding"); return false }
+    let function = module.functions[entry]
+    if not function.kernel or arguments.length() != function.parameterTypes.length() { state.fail("witness.binding"); return false }
+    var i = 0
+    while i < arguments.length() {
+        let resource = function.parameterTypes[i] / 1000
+        if resource >= 1 and resource <= 3 and (arguments[i] < 0 or arguments[i] >= state.buffers.length()) { state.fail("witness.binding"); return false }
+        i = i + 1
+    }
+    let frame = IrScalarFrame.create(function, entry, arguments); irScalarBlock(module, state, frame, 0, 0, 0); frame.release()
+    return state.valid
+}

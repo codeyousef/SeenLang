@@ -1,0 +1,56 @@
+extern "C" fun seen_memory_used_bytes() r: Int64
+class GenericArrayOwner<T> {
+    var data: Array<T>
+}
+class ArrayOwner {
+    var values: GenericArrayOwner<Int>
+}
+class GenericOwner<T> {
+    var value: T
+    fun read() r: T { return this.value }
+}
+class NumberValue { var number: Int }
+fun round() r: Void {
+    let number = NumberValue{number: 19}
+    let generic = GenericOwner<NumberValue>{value: number}
+    let read = generic.read()
+    if read.number != 19 { abort("generic handle field load failed") }
+    generic.free()
+    number.free()
+    let array = Array<Int>(); array.push(23)
+    let boxed = GenericOwner<Array<Int>>{value: array}
+    let returned = boxed.read()
+    if returned[0] != 23 { abort("generic pointer-valued field load failed") }
+    returned.free(); boxed.free()
+    let flag = GenericOwner<Bool>{value: true}
+    if not flag.read() { abort("generic boolean return representation failed") }
+    flag.free()
+    let fraction = GenericOwner<Float>{value: 3.5}
+    if fraction.read() != 3.5 { abort("generic floating return bit pattern failed") }
+    fraction.free()
+    let narrow = GenericOwner<Float32>{value: 1.25 as Float32}
+    if narrow.read() != (1.25 as Float32) {
+        abort("generic narrow floating return bit pattern failed")
+    }
+    narrow.free()
+    let values = GenericArrayOwner<Int>{data: Array<Int>()}
+    values.data.push(7)
+    let owner = ArrayOwner{values: values}
+    let data = owner.values.data
+    if data[0] != 7 { abort("generic array field alias load failed") }
+    if owner.values.data[0] != 7 { abort("generic array field load failed") }
+    owner.values.data.free()
+    owner.values.free()
+    owner.free()
+}
+fun main() r: Int {
+    round()
+    let baseline = seen_memory_used_bytes(); var i = 0
+    while i < 1000 {
+        round()
+        if seen_memory_used_bytes() != baseline { return 1 }
+        i = i + 1
+    }
+    println("PASS: chained generic array field cleanup preserves pointer ABI")
+    return 0
+}

@@ -1,0 +1,65 @@
+/// Resolve original storage for inline aggregate assignment receivers.
+/// Ordinary expression lowering intentionally returns aggregate value copies.
+import parser.real_parser.{ParserExpressionNode}
+import str.string.{StringBuilder}
+import codegen.ir_lowering_context.{CodegenLoweringContext, lowerExpression, inferLoweredExpressionType}
+import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl}
+import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl}
+import codegen.ir_codegen_type_state.{mapTypeState}
+import codegen.ir_field_lookup_state.{getFieldInfoState}
+import codegen.ir_member_access_driver.{generateFieldAccessPtrState}
+import codegen.ir_path_expr.{buildChainedPathExprImpl}
+import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
+import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
+import codegen.ir_member_assignment_driver.{emitAddressReceiverMemberAssignmentState}
+
+fun tryAssignInlineReceiverFieldState(ctx: CodegenLoweringContext,
+    output: StringBuilder, receiver: ParserExpressionNode, fieldName: String,
+    valueReg: String, valueKind: String, valueSeenType: String,
+    varNames: Array<String>, varRegs: Array<String>, varTypes: Array<String>) r: Bool {
+
+    let receiverType = inferLoweredExpressionType(ctx, receiver)
+    if not mapTypeState(receiverType).startsWith("%") { return false }
+    let address = assignmentReceiverAddressState(ctx, output, receiver,
+        varNames, varRegs, varTypes, 0)
+    if address == "" { return false }
+    emitAddressReceiverMemberAssignmentState(output, address, receiverType,
+        fieldName, valueReg, valueKind, valueSeenType)
+    return true
+}
+
+fun assignmentReceiverAddressState(ctx: CodegenLoweringContext,
+    output: StringBuilder, expression: ParserExpressionNode,
+    varNames: Array<String>, varRegs: Array<String>, varTypes: Array<String>,
+    depth: Int) r: String {
+
+    if depth >= 128 { return "" }
+    let seenType = inferLoweredExpressionType(ctx, expression)
+    if seenType == "" or seenType == "Unknown" { return "" }
+    let llvmType = mapTypeState(seenType)
+    if not llvmType.startsWith("%") {
+        let value = lowerExpression(ctx, expression)
+        return coerceValueForLlvmTargetImpl(output, getFeatureRegBoxImpl(),
+            "ptr", seenType, llvmType, value)
+    }
+    if expression.kind == "Variable" or expression.kind == "VarExpr" {
+        var name = expression.variableName
+        if name == "" { name = expression.literalValue }
+        let index = findActiveVariableIndexImpl(varNames,
+            getBoundedActiveVarCountWithGlobalStateImpl(varNames), name)
+        if index >= 0 { return varRegs[index] }; return ""
+    }
+    if expression.kind != "MemberAccess" { return "" }
+    var owner = expression
+    if expression.operands.length() == 1 { owner = expression.operands[0] }
+    else if expression.operands.length() == 0 and expression.literalValue != "" {
+        owner = buildChainedPathExprImpl(expression.literalValue)
+    } else { return "" }
+    let ownerType = inferLoweredExpressionType(ctx, owner)
+    if getFieldInfoState(ownerType, expression.variableName) < 0 { return "" }
+    let ownerPtr = assignmentReceiverAddressState(ctx, output, owner,
+        varNames, varRegs, varTypes, depth + 1)
+    if ownerPtr == "" { return "" }
+    return generateFieldAccessPtrState(output, ownerPtr, ownerType,
+        expression.variableName)
+}

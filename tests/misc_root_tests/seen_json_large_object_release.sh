@@ -37,9 +37,9 @@ awk 'BEGIN {
 
 timeout --foreground --kill-after=10s 900s \
     "${COMPILER_PREFIX[@]}" "$COMPILER" compile \
-    "$ROOT_DIR/seen_std/tests/json/large_object_release.seen" \
+    "$ROOT_DIR/seen_std/tests/json/large_object_release_fixture.seen" \
     "$WORK_DIR/large-object" --release --lto thin --no-cache --no-fork \
-    --target-cpu "$RELEASE_TARGET_CPU" --jobs 1 --opt-jobs 1
+    --target-cpu "$RELEASE_TARGET_CPU"
 timeout --foreground --kill-after=5s 300s \
     bash -c 'ulimit -S -s 8192; exec "$1" "$2"' _ \
     "$WORK_DIR/large-object" "$WORK_DIR/object.json"
@@ -50,7 +50,7 @@ if ! timeout --foreground --kill-after=10s 600s \
     "$ROOT_DIR/seen_std/tests/array_bool_assignment_sanitizer.seen" \
     "$WORK_DIR/bool-assignment-sanitizer" --fast --sanitize=address \
     --no-cache --no-fork --target-cpu "$RELEASE_TARGET_CPU" \
-    --jobs 1 --opt-jobs 1 >"$ASAN_COMPILE_LOG" 2>&1; then
+    >"$ASAN_COMPILE_LOG" 2>&1; then
 
     tail -c 32768 "$ASAN_COMPILE_LOG" >&2
     exit 1

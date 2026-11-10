@@ -1,0 +1,9 @@
+fun irOnlyAnswer() r: Int {
+    return 42
+}
+
+fun main() r: Int {
+    return if irOnlyAnswer() == 42 { 0 } else { 1 }
+}
+
+main()

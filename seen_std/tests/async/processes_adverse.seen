@@ -1,0 +1,90 @@
+import stress_fixture_support.{must, context, errorHasProgress}
+import async.structured.{AsyncError, seen_time_monotonic_nanos}
+import async.executor_core.{ExecutorLimits, executorReleaseContext}
+import async.pools.{TypedWorkerPool}
+import async.pool_placement.{PoolPlacement}
+import async.processes.{ProcessSpawnJob, AsyncProcessSpawner, AsyncProcess, AsyncProcessExit}
+import core.result.{Result}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_async_process_live_children() r: UInt64
+extern "C" fun seen_executor_live_threads() r: UInt64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+extern "C" fun seen_sync_live_mutexes() r: UInt64
+extern "C" fun seen_sync_live_conditions() r: UInt64
+
+fun expectError<T>(value: Result<T, AsyncError>, code: String) r: Void {
+    if not errorHasProgress<T>(value, code, 0 as UInt64) { abort("process error code/progress mismatch") }
+}
+fun waitExit(process: AsyncProcess) r: AsyncProcessExit {
+    let end = seen_time_monotonic_nanos() + (5000000000 as Int64)
+    while seen_time_monotonic_nanos() < end {
+        let result = must(process.pollExit())
+        if result.isSome() { let value = result.unwrap(); result.free(); return value }
+        result.free()
+    }
+    abort("owned child did not exit before fixture deadline")
+}
+fun main() r: Int {
+    let memory = seen_memory_used_bytes(); let children = seen_async_process_live_children()
+    let threads = seen_executor_live_threads(); let atomics = seen_sync_live_atomics()
+    let mutexes = seen_sync_live_mutexes(); let conditions = seen_sync_live_conditions()
+    let cfg = ExecutorLimits{workers: 1, tasks: 4, queued: 4, helpDepth: 2, stackBytes: 1048576 as UInt64}
+    let placement = PoolPlacement.inherited()
+    let pool = must(TypedWorkerPool<ProcessSpawnJob>.create("blocking", cfg, placement))
+    let cpu = must(TypedWorkerPool<ProcessSpawnJob>.create("cpu", cfg, placement))
+    cfg.free(); placement.release()
+    expectError(AsyncProcessSpawner.create(cpu, 1, 1 as UInt64), "async.invalid"); must(cpu.release())
+    expectError(AsyncProcessSpawner.create(pool, 0, 1 as UInt64), "async.limit")
+    expectError(AsyncProcessSpawner.create(pool, 1025, 1 as UInt64), "async.limit")
+    expectError(AsyncProcessSpawner.create(pool, 1, 0 as UInt64), "async.limit")
+    expectError(AsyncProcessSpawner.create(pool, 1, 16777217 as UInt64), "async.limit")
+    let spawner = must(AsyncProcessSpawner.create(pool, 1, 1 as UInt64))
+    expectError(pool.close(), "async.invalid")
+    let ctx = context(); let cancelled = context(); cancelled.operation.cancellation = true
+    let arguments = Array<String>(); let environment = Array<String>()
+    expectError(spawner.spawn("/bin/true", arguments, environment, cancelled), "async.cancelled")
+    expectError(spawner.spawn("true", arguments, environment, ctx), "async.invalid")
+    environment.push("BAD-NAME=value")
+    expectError(spawner.spawn("/bin/true", arguments, environment, ctx), "async.invalid"); environment.free()
+    let clean = Array<String>(); var index = 0
+    while index < 256 { arguments.push("x"); index = index + 1 }
+    expectError(spawner.spawn("/bin/true", arguments, clean, ctx), "async.limit"); arguments.free()
+    let sleep = ["60"]
+    let missing = must(spawner.spawn("/seen-fixture-executable-does-not-exist", clean, clean, ctx))
+    expectError(missing.join(ctx), "async.invalid"); must(missing.release())
+    let first = must(spawner.spawn("/bin/sleep", sleep, clean, ctx))
+    let job = must(first.join(ctx)); let process = must(job.takeProcess())
+    expectError(job.takeProcess(), "async.invalid"); job.release(); must(first.release())
+    expectError(spawner.spawn("/bin/true", clean, clean, ctx), "async.limit")
+    expectError(spawner.release(), "async.unavailable"); expectError(process.release(), "async.unavailable")
+    expectError(process.takeStream(-1), "async.invalid"); expectError(process.takeStream(3), "async.invalid")
+    let input = must(process.takeStream(0)); let output = must(process.takeStream(1)); let error = must(process.takeStream(2))
+    expectError(process.takeStream(0), "async.invalid")
+    let running = must(process.pollExit())
+    if running.isSome() { abort("sleeping process unexpectedly exited") }
+    running.free()
+    let notification = must(process.notificationLease())
+    expectError(process.notificationLease(), "async.limit")
+    must(process.cancel()); let exited = waitExit(process)
+    if exited.signal != 9 { abort("cancelled process did not report SIGKILL") }
+    exited.free(); let cached = waitExit(process)
+    if cached.signal != 9 { abort("cached process exit changed") }
+    cached.free(); must(process.cancel())
+    expectError(process.release(), "async.unavailable"); notification.release()
+    must(input.release()); must(output.release()); must(error.release())
+    must(process.descriptor.close()); expectError(process.notificationLease(), "async.invalid")
+    must(process.release())
+    // Releasing an unclaimed successful spawn job must kill/reap its own child.
+    let unclaimed = must(spawner.spawn("/bin/sleep", sleep, clean, ctx))
+    let owner = must(unclaimed.join(ctx)); owner.release(); must(unclaimed.release())
+    sleep.free(); clean.free(); must(spawner.release()); must(pool.close())
+    expectError(AsyncProcessSpawner.create(pool, 1, 1 as UInt64), "async.invalid")
+    must(pool.release()); executorReleaseContext(ctx); executorReleaseContext(cancelled)
+    if seen_memory_used_bytes() != memory or seen_async_process_live_children() != children or
+        seen_executor_live_threads() != threads or seen_sync_live_atomics() != atomics or
+        seen_sync_live_mutexes() != mutexes or seen_sync_live_conditions() != conditions {
+        abort("process adverse paths leaked children or resources")
+    }
+    println("PASS: process admission, stream ownership, kill/reap and unclaimed cleanup")
+    return 0
+}

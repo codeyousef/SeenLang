@@ -182,13 +182,17 @@ for item in items {
 for i in 0..10 {
     println("{i}")  // 0 through 9
 }
+
+for i in -3..3 {
+    println("{i}")  // -3 through 2; six iterations
+}
 ```
 
-Numeric range starts may be negative: `-3..3` visits `-3, -2, -1, 0, 1, 2`.
-The exclusive upper bound uses signed ordering, and a start at or above that
-bound produces an empty range. Literal, constant-folded, and runtime bounds
-have the same termination behavior, including nested ranges crossing zero.
-Range advancement uses signed `Int` semantics; crossing `-1` to `0` is valid.
+Integer ranges have a signed start and an exclusive upper bound. Literal,
+constant-folded and runtime bounds have the same termination behavior, including
+nested ranges crossing zero. A start at or above the upper bound produces an
+empty range. Range advancement uses signed `Int` semantics; crossing `-1` to `0`
+is valid.
 
 ### loop (infinite)
 
@@ -418,6 +422,31 @@ class Stack<T> {
 }
 ```
 
+Closed source generic classes with `String` or `Array<Int>` arguments use concrete
+field types and method signatures. String aggregates and native Array references
+retain their distinct representations; an Array reference is not an inline copy
+of its backing descriptor. Instantiations do not share a mutated template, and
+runtime-owned containers retain their existing representation.
+The [aggregate receiver example](../tests/fixtures/core-004d/CORE-004D_generic_receivers/aggregate_values.seen)
+exercises field access, getters/setters, neighboring fields, aliases, nested
+instantiations and cleanup across module boundaries.
+
+This is not general free-function or method-own generic monomorphization.
+Bare generic parameter or return slots that would require an aggregate ABI are
+rejected rather than truncated, boxed or bitcast. A generic argument appearing
+only inside a fixed-representation container does not by itself require a new
+ABI; the function body must also remain valid under that representation.
+Inferred direct calls undergo the same body checks as explicit type arguments.
+Descriptor-only forwarding can remain erased; element access or construction
+may require rejection. Move/borrow qualifiers also govern the implicit cleanup
+checks rather than being discarded during representation analysis.
+Use a concrete extractor when a result payload is an Array: for example,
+`Result<Array<Job>, AsyncError>` returning `Array<Job>`, not an erased helper
+returning bare `T`. Releasing the Result container does not release the returned
+Array or its jobs; the assertion or application caller retains those owners.
+Aggregate specializations with remaining open class arguments, unsupported trait
+specializations and foreign/exported aggregate methods are rejected.
+
 ### Generic constraints
 
 ```seen
@@ -535,6 +564,15 @@ let p = Point.new(3.0, 4.0)
 println("Distance: {p.distanceTo(Point.new(0.0, 0.0))}")
 ```
 
+Use `{{` and `}}` for literal braces. This also applies to embedded JSON:
+
+```seen
+let document = "{{\"params\":{{}}}}"  // Decodes to {"params":{}}
+```
+
+When testing a parser, check the decoded input bytes rather than assuming
+the source literal has the same brace count.
+
 ## Arrays and Collections
 
 ### Array literals
@@ -596,6 +634,7 @@ ByteBuffer, primitive buffers, sort/search helpers, priority queues, and more.
 
 ```seen
 0..10      // exclusive: 0, 1, 2, ..., 9
+-3..3      // exclusive: -3, -2, -1, 0, 1, 2
 ```
 
 Inclusive `..=` syntax is not currently accepted by the parser.
@@ -636,6 +675,15 @@ let x: Int = 42
 let f = x as Float
 let s = x as String
 ```
+
+Native 64-bit numeric casts give `Int64` the same conversion behavior as `Int`.
+Casts from `Float32` or `Float`/`Float64` to signed-64 integers truncate toward
+zero for finite, in-range inputs; they do not provide saturation. Conversions
+back to floating types may round values beyond that type's exact precision.
+
+On supported 64-bit targets, `Ptr`↔`Int`/`UInt64` casts preserve the pointer bits
+using the physical pointer/word ABI. Converting an integer to a pointer does not
+validate the address or extend an allocation's lifetime.
 
 ## Modules and Imports
 

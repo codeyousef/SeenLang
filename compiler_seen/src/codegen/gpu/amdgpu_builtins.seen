@@ -1,0 +1,72 @@
+/// Hardware coordinates are read in the uniform entry prologue. Workgroup
+/// counts come from the versioned HSA v5 implicit block, not guessed grid sizes.
+import codegen.gpu.amdgpu_context.{GpuAmdFunction, amdValue, amdSlot, amdDefinition}
+import codegen.gpu.amdgpu_target.{amdWavefrontSize}
+
+fun amdCoordinate(function: GpuAmdFunction, destination: Int, axis: Int, group: Bool) r: Void {
+    let text = function.initializers; let id = function.value(); amdDefinition(text, id)
+    if group { text.literal("call i32 @llvm.amdgcn.workgroup.id.") } else { text.literal("call i32 @llvm.amdgcn.workitem.id.") }
+    if axis == 0 { text.literal("x()\n") } else if axis == 1 { text.literal("y()\n") } else { text.literal("z()\n") }
+    text.literal("  store i32 "); amdValue(text, id); text.literal(", ptr addrspace(5) "); amdSlot(text, destination); text.literal(", align 4\n")
+}
+fun amdImplicitAddress(function: GpuAmdFunction) r: Int {
+    if function.implicitAddress != 0 { return function.implicitAddress }
+    let base = function.value(); amdDefinition(function.initializers, base)
+    function.initializers.literal("call ptr addrspace(4) @llvm.amdgcn.implicitarg.ptr()\n"); function.implicitAddress = base; return base
+}
+fun amdImplicitWord(function: GpuAmdFunction, offset: Int, narrow: Bool) r: Int {
+    var width = 4; if narrow { width = 2 }
+    if offset < 0 or offset > 256 - width or offset % width != 0 {
+        function.error("E_GPU_AMDGPU_LAYOUT", "AMDGPU implicit argument offset is invalid"); return 0
+    }
+    let base = amdImplicitAddress(function); let text = function.initializers; let pointer = function.value(); var value = function.value()
+    let slot = function.allocate(1); amdDefinition(text, pointer); text.literal("getelementptr i8, ptr addrspace(4) ")
+    amdValue(text, base); text.literal(", i64 "); text.number(offset); text.literal("\n"); amdDefinition(text, value)
+    if narrow { text.literal("load i16, ptr addrspace(4) ") } else { text.literal("load i32, ptr addrspace(4) ") }
+    amdValue(text, pointer); if narrow { text.literal(", align 2\n") } else { text.literal(", align 4\n") }
+    if narrow {
+        let widened = function.value(); amdDefinition(text, widened); text.literal("zext i16 "); amdValue(text, value); text.literal(" to i32\n"); value = widened
+    }
+    text.literal("  store i32 "); amdValue(text, value); text.literal(", ptr addrspace(5) "); amdSlot(text, slot); text.literal(", align 4\n"); return slot
+}
+fun amdGroupCounts(function: GpuAmdFunction, destination: Int) r: Void {
+    let base = amdImplicitAddress(function); let text = function.initializers; var axis = 0
+    while axis < 3 {
+        let pointer = function.value(); let value = function.value(); amdDefinition(text, pointer)
+        text.literal("getelementptr i8, ptr addrspace(4) "); amdValue(text, base); text.literal(", i64 "); text.number(axis * 4); text.literal("\n")
+        amdDefinition(text, value); text.literal("load i32, ptr addrspace(4) "); amdValue(text, pointer); text.literal(", align 4\n")
+        text.literal("  store i32 "); amdValue(text, value); text.literal(", ptr addrspace(5) "); amdSlot(text, destination + axis); text.literal(", align 4\n")
+        axis = axis + 1
+    }
+}
+fun amdBuiltin(function: GpuAmdFunction, code: Int) r: Int {
+    if code == 6 { return function.word(amdWavefrontSize(function.target)) }
+    if code == 7 or code == 8 {
+        let result = function.allocate(1); let local = amdBuiltin(function, 5)
+        if code == 7 { function.binary("udiv", result, local, function.word(amdWavefrontSize(function.target))) }
+        else { function.binary("and", result, local, function.word(amdWavefrontSize(function.target) - 1)) }; return result
+    }
+    if code == 5 {
+        let local = amdBuiltin(function, 2); let result = function.allocate(1); let temporary = function.allocate(1)
+        function.binary("mul", temporary, local + 2, function.word(function.workgroupY)); function.binary("add", temporary, temporary, local + 1)
+        function.binary("mul", result, temporary, function.word(function.workgroupX)); function.binary("add", result, result, local); return result
+    }
+    if code == 1 {
+        let local = amdBuiltin(function, 2); let group = amdBuiltin(function, 3); let size = amdBuiltin(function, 9)
+        let result = function.allocate(3); var axis = 0
+        while axis < 3 {
+            function.binary("mul", result + axis, group + axis, size + axis)
+            function.binary("add", result + axis, result + axis, local + axis); axis = axis + 1
+        }; return result
+    }
+    if code != 2 and code != 3 and code != 4 and code != 9 {
+        function.error("E_GPU_AMDGPU_CAPABILITY", "AMDGPU builtin identity is unsupported"); return 0
+    }
+    let result = function.allocate(3)
+    if code == 4 { amdGroupCounts(function, result) }
+    else if code == 9 {
+        function.copy(result, function.word(function.workgroupX), 1); function.copy(result + 1, function.word(function.workgroupY), 1)
+        function.copy(result + 2, function.word(function.workgroupZ), 1)
+    } else { var axis = 0; while axis < 3 { amdCoordinate(function, result + axis, axis, code == 3); axis = axis + 1 } }
+    return result
+}

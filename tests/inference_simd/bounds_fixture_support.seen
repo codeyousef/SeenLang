@@ -1,0 +1,68 @@
+import parser.real_parser.{StatementNode, ParserExpressionNode}
+fun proofFixtureNode(nodes: Array<ParserExpressionNode>) r: ParserExpressionNode {
+    let node = ParserExpressionNode.new(); nodes.push(node); return node
+}
+fun proofFixtureVariable(nodes: Array<ParserExpressionNode>, name: String) r: ParserExpressionNode {
+    let node = proofFixtureNode(nodes); node.kind = "Variable"
+    node.variableName = name; node.literalValue = name; return node
+}
+fun proofFixtureStatement(nodes: Array<ParserExpressionNode>, statements: Array<StatementNode>) r: StatementNode {
+    let statement = StatementNode.new(); statements.push(statement)
+    nodes.push(statement.initializer); nodes.push(statement.returnValue); nodes.push(statement.expression)
+    nodes.push(statement.condition); nodes.push(statement.loopCondition)
+    return statement
+}
+class BoundsFixture {
+    var names: Array<String>
+    var types: Array<String>
+    var nodes: Array<ParserExpressionNode>
+    var statements: Array<StatementNode>
+    var data: ParserExpressionNode
+    var other: ParserExpressionNode
+    var index: ParserExpressionNode
+    var sum: ParserExpressionNode
+    var unknownIndex: ParserExpressionNode
+    var pointer: ParserExpressionNode
+    var zero: ParserExpressionNode
+    var length: ParserExpressionNode
+    var range: ParserExpressionNode
+    var access: ParserExpressionNode
+    var add: ParserExpressionNode
+    var assignment: ParserExpressionNode
+    var body: StatementNode
+    var rangeStatement: StatementNode
+    static fun create() r: BoundsFixture {
+        let nodes = Array<ParserExpressionNode>(); let statements = Array<StatementNode>()
+        let names = ["data", "other", "i", "sum", "j", "pointer"]
+        let types = ["Array<Int>", "Array<Int>", "Int", "Int", "Int", "*Int"]
+        let data = proofFixtureVariable(nodes, "data"); let other = proofFixtureVariable(nodes, "other"); let index = proofFixtureVariable(nodes, "i")
+        let sum = proofFixtureVariable(nodes, "sum"); let unknownIndex = proofFixtureVariable(nodes, "j"); let pointer = proofFixtureVariable(nodes, "pointer")
+        let zero = proofFixtureNode(nodes); zero.kind = "Literal"; zero.literalType = "Int"; zero.literalValue = "0"
+        let length = proofFixtureNode(nodes); length.kind = "MethodCall"; length.callee = "length"; length.literalValue = "data"
+        let range = proofFixtureNode(nodes); range.kind = "Range"; range.operands.push(zero); range.operands.push(length)
+        let access = proofFixtureNode(nodes); access.kind = "IndexAccess"; access.operands.push(data); access.operands.push(index)
+        let add = proofFixtureNode(nodes); add.kind = "Binary"; add.operator = "+"; add.operands.push(sum); add.operands.push(access)
+        let assignment = proofFixtureNode(nodes); assignment.kind = "Assignment"; assignment.variableName = "sum"; assignment.operands.push(add)
+        let body = proofFixtureStatement(nodes, statements); body.kind = "Expression"; body.expression = assignment
+        let rangeStatement = proofFixtureStatement(nodes, statements); rangeStatement.kind = "ForIn"; rangeStatement.variableName = "i"; rangeStatement.expression = range
+        rangeStatement.loopBody.statements.push(body)
+        return BoundsFixture{names: names, types: types, nodes: nodes, statements: statements,
+            data: data, other: other, index: index, sum: sum, unknownIndex: unknownIndex, pointer: pointer, zero: zero, length: length, range: range, access: access, add: add, assignment: assignment,
+            body: body, rangeStatement: rangeStatement}
+    }
+    fun release() r: Void {
+        var i = 0
+        while i < this.nodes.length() {
+            let node = this.nodes[i]; node.operands.free(); node.arguments.free(); node.free(); i = i + 1
+        }
+        i = 0
+        while i < this.statements.length() {
+            let statement = this.statements[i]
+            let thenBlock = statement.thenBranch; thenBlock.statements.free(); thenBlock.free()
+            let elseBlock = statement.elseBranch; elseBlock.statements.free(); elseBlock.free()
+            let loopBlock = statement.loopBody; loopBlock.statements.free(); loopBlock.free()
+            statement.free(); i = i + 1
+        }
+        this.nodes.free(); this.statements.free(); this.names.free(); this.types.free(); this.free()
+    }
+}

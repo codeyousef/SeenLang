@@ -1,0 +1,3 @@
+@vertex
+fun unsupportedVertex() { }
+fun main() r: Int { return 0 }

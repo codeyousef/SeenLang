@@ -1,0 +1,30 @@
+import json.builder.{seen_string_clone_owned, seen_string_release_owned}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes()
+    let borrowed = seen_string_clone_owned("retained caller-owned output")
+    var i = 0
+    while i < 8 {
+        let before = seen_memory_used_bytes()
+        let number = 41 + i
+        let fraction: Float = 1.25
+        let letter: Char = "é".charAt(0)
+        print(number); print(" "); println(-17)
+        print(fraction); print(" "); println(i % 2 == 0)
+        print(letter); print(" "); println(borrowed)
+        print(-128 as Int8); print(" "); print(-32768 as Int16); print(" ")
+        print(-2147483648 as Int32); print(" ")
+        println((-9223372036854775807 as Int64) - (1 as Int64))
+        print(255 as UInt8); print(" "); print(65535 as UInt16); print(" ")
+        print(4294967295 as UInt32); print(" ")
+        println((0 as UInt64) - (1 as UInt64))
+        print(1.25 as Float32); print(" "); println(1.25 as Float64)
+        if borrowed != "retained caller-owned output" { abort("printing released or changed a caller-owned String") }
+        if seen_memory_used_bytes() != before { abort("scalar printing retained an implicit formatting temporary") }
+        i = i + 1
+    }
+    seen_string_release_owned(borrowed)
+    if seen_memory_used_bytes() != baseline { abort("scalar output ownership did not return to baseline") }
+    return 0
+}

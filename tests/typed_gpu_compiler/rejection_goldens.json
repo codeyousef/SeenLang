@@ -1,0 +1,4 @@
+[
+  {"schema":"seen-gpu-rejection-golden-v1","code":"E_GPU_UNSUPPORTED","message":"unsupported GPU statement or host effect","function":0,"block":0,"instruction":-1,"line":17,"column":9},
+  {"schema":"seen-gpu-rejection-golden-v1","code":"E_GPU_UNSUPPORTED","message":"unsupported GPU expression or host effect","function":0,"block":0,"instruction":-1,"line":23,"column":4}
+]

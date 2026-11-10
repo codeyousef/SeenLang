@@ -1,0 +1,174 @@
+import compute.fallback.{GpuFallbackPolicy, GpuFallbackStats, GpuFallbackAttempt}
+import compute.vulkan_provider.{GpuVulkanProvider, openVulkanDevice}
+import compute.vulkan_pipeline_device.{GpuVulkanPipelineDevice}
+import compute.vulkan_pipeline_artifact.{GpuVulkanArtifact}
+import compute.vulkan_pipeline.{GpuVulkanPipeline}
+import compute.vulkan_pipeline_dispatch.{GpuVulkanDispatch}
+import compute.vulkan_stream.{GpuVulkanStream}
+import compute.vulkan_mapping.{GpuVulkanMappedRegion, gpuVkMapBuffer}
+import compute.buffer.{GpuBuffer}
+import compute.buffer_region.{GpuBufferRegion}
+import compute.allocator.{GpuAllocator}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.device_info.{GpuDeviceKind}
+import compute.limits.{GpuLimits}
+import compute.error.{GpuError}
+import compute.operation.{gpuCheckOperation}
+import core.result.{Result, Ok}
+import core.operation_context.{OperationContext}
+import memory.aligned_buffer.{OwnedBuffer}
+import provider_fixture_support.{completed}
+import device_fixture_support.{operation, releaseOperation}
+import env.env.{args, releaseArgs}
+import io.file.{readText, size}
+import json.builder.{seen_string_release_owned}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+
+fun recoveryTake<T>(result: Result<T, GpuError>) r: T {
+    if result.isErr() { let error = result.unwrapErr(); println(error.code); println(error.operation); println(error.message); abort("native GPU recovery operation failed") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun recoveryReject<T>(result: Result<T, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("invalid GPU recovery operation succeeded") }
+    let error = result.unwrapErr(); result.releaseContainer(); if error.code != code { println(error.code); abort("GPU recovery rejection differs") }; error.release()
+}
+fun recoveryCpuStorage() r: OwnedBuffer<UInt32> {
+    let allocated = OwnedBuffer<UInt32>.allocate(37 as UInt64, 4 as UInt64, 64 as UInt64)
+    if allocated.isErr() { abort("CPU fallback oracle storage unavailable") }
+    let buffer = allocated.unwrap(); allocated.releaseContainer(); return buffer
+}
+fun recoveryPut(borrow map: GpuVulkanMappedRegion, index: Int, word: UInt32) r: Void {
+    var b = 0; while b < 4 { completed(map.writeByte((index * 4 + b) as UInt64, ((word >> ((b * 8) as UInt32)) & (255 as UInt32)) as UInt8), true); b = b + 1 }
+}
+fun recoveryWord(borrow map: GpuVulkanMappedRegion, index: Int) r: UInt32 {
+    var value = 0 as UInt32; var b = 0
+    while b < 4 { value = value | ((recoveryTake<UInt8>(map.readByte((index * 4 + b) as UInt64)) as UInt32) << ((b * 8) as UInt32)); b = b + 1 }; return value
+}
+// Independent closed-form reference: the chosen input sequence makes the
+// modular output an arithmetic progression, crossing UInt32 at index31.
+fun recoveryExpected(index: Int) r: UInt32 {
+    var expected = index * 22 - 672; if expected < 0 { expected = expected + 4294967296 }; return expected as UInt32
+}
+// ACTUAL CPU fallback of the same reflected foundation task, using retained CPU
+// inputs, never GPU data read after loss. Shift/subtract differs from shader's
+// multiply and the independent arithmetic-progression consumer oracle.
+fun recoveryCpuFoundation(borrow input: OwnedBuffer<UInt32>, borrow output: OwnedBuffer<UInt32>, op: OperationContext) r: Result<Bool, GpuError> {
+    let checked = gpuCheckOperation(op, "gpu.fixture.cpu_foundation"); if checked.isErr() { return checked }; checked.releaseContainer()
+    var i = 0
+    while i < 37 { let value = input.data[i] as UInt64; output.data[i] = (((value << (3 as UInt32)) - value + (i as UInt64)) & (4294967295 as UInt64)) as UInt32; i = i + 1 }
+    return Ok<Bool, GpuError>(true)
+}
+fun recoveryError(borrow error: GpuError, lost: Bool, progress: UInt64) r: Void {
+    var code = "gpu.out_of_memory"; var native = -1 as Int64
+    if lost { code = "gpu.device_lost"; native = -4 as Int64 }
+    if error.code != code or error.progress != progress or error.nativeCode.isNone() or error.nativeCode.unwrap() != native { abort("GPU recovery lost original SDK code or accepted progress") }
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics(); let arguments = args()
+    if arguments.length() != 5 { abort("requires SPIR-V reflection explicit device class and fallback mode") }
+    let mode = arguments[4]
+    if mode != "oom-disabled" and mode != "oom-enabled" and mode != "lost-disabled" and mode != "lost-enabled" and mode != "lost-cpu-error" and mode != "oom-deadline" { abort("unknown native fallback mode") }
+    let lost = mode.startsWith("lost-"); let disabled = mode.endsWith("-disabled"); let deadline = mode == "oom-deadline"; let cpuError = mode == "lost-cpu-error"
+    let hardware = arguments[3] == "rtx4090"
+    if not hardware and arguments[3] != "software-reference" { abort("explicit native fallback device unavailable; no selection fallback") }
+    if size(arguments[1]) < 20 or size(arguments[1]) > 33554432 or size(arguments[2]) < 1 or size(arguments[2]) > 4194304 { abort("native fallback artifact extent invalid") }
+    let binary = readText(arguments[1]); let reflection = readText(arguments[2]); let op = operation()
+    let limits = GpuLimits.bounded(8, 4, 128, 1048576 as UInt64)
+    let provider = recoveryTake<GpuVulkanProvider>(GpuVulkanProvider.discover(op, limits, not hardware)); var selected = -1; var i = 0
+    while i < provider.catalog.devices.length() { let info = provider.catalog.devices[i]
+        if hardware { if info.kind == GpuDeviceKind.Discrete and info.name.contains("RTX 4090") { selected = i } } else if info.kind == GpuDeviceKind.Software { selected = i }; i = i + 1
+    }
+    if selected < 0 { abort("designated native fallback device is absent") }
+    let physical = recoveryTake<GpuVulkanPipelineDevice>(GpuVulkanPipelineDevice.capture(provider, selected))
+    let device = recoveryTake(openVulkanDevice(provider, selected, op)); let context = recoveryTake(device.createContext(op))
+    let allocator = recoveryTake<GpuAllocator>(GpuAllocator.create(context, GpuMemoryKind.HostCoherent, 4096 as UInt64, 4, op))
+    let stream = recoveryTake<GpuVulkanStream>(GpuVulkanStream.open(allocator, 4, op))
+    let artifact = recoveryTake<GpuVulkanArtifact>(GpuVulkanArtifact.parse(binary, reflection, "foundation")); let empty = Array<Int>()
+    let pipeline = recoveryTake<GpuVulkanPipeline>(GpuVulkanPipeline.open(allocator, stream, physical, artifact, empty, op)); empty.free()
+    let input = recoveryTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 37 as UInt64, 4 as UInt64, 256 as UInt64, op))
+    let output = recoveryTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 37 as UInt64, 4 as UInt64, 256 as UInt64, op))
+    let scale = recoveryTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 4 as UInt64, 4 as UInt64, 256 as UInt64, op))
+    let fault = recoveryTake<GpuBuffer<UInt32>>(GpuBuffer<UInt32>.allocate(allocator, 1 as UInt64, 4 as UInt64, 256 as UInt64, op))
+    let cpuInput = recoveryCpuStorage(); let cpuOutput = recoveryCpuStorage()
+    let inputMap = recoveryTake<GpuVulkanMappedRegion>(gpuVkMapBuffer(input, 0 as UInt64, 148 as UInt64, true, op))
+    let scaleMap = recoveryTake<GpuVulkanMappedRegion>(gpuVkMapBuffer(scale, 0 as UInt64, 16 as UInt64, true, op)); i = 0
+    while i < 37 { cpuInput.data[i] = ((4294967200 as UInt64) + ((i * 3) as UInt64)) as UInt32; cpuOutput.data[i] = 2913840557 as UInt32; recoveryPut(inputMap, i, cpuInput.data[i]); i = i + 1 }
+    recoveryPut(scaleMap, 0, 7 as UInt32); completed(inputMap.release(), true); completed(scaleMap.release(), true)
+    let regions = Array<GpuBufferRegion>()
+    regions.push(recoveryTake<GpuBufferRegion>(input.region(0 as UInt64, 148 as UInt64, false, op)))
+    regions.push(recoveryTake<GpuBufferRegion>(output.region(0 as UInt64, 148 as UInt64, true, op)))
+    regions.push(recoveryTake<GpuBufferRegion>(scale.region(0 as UInt64, 16 as UInt64, false, op)))
+    regions.push(recoveryTake<GpuBufferRegion>(fault.region(0 as UInt64, 4 as UInt64, true, op)))
+    let dispatch = recoveryTake<GpuVulkanDispatch>(GpuVulkanDispatch.prepare(pipeline, regions, op))
+    let stats = recoveryTake<GpuFallbackStats>(GpuFallbackStats.create(4, 1))
+    var policy = GpuFallbackPolicy.Disabled
+    if not disabled { if lost { policy = GpuFallbackPolicy.DeviceLost } else { policy = GpuFallbackPolicy.OutOfMemory } }
+    let submitted = dispatch.submit(5 as UInt64, 1 as UInt64, 1 as UInt64, op)
+    if submitted.isOkay() { abort("native fallback fixture fault was never exercised") }
+    var original = submitted.unwrapErr(); submitted.releaseContainer(); let progress = original.progress
+    if lost { if progress == (0 as UInt64) or not dispatch.pending { abort("device loss lost uncertain accepted ownership") } } else { if progress != (0 as UInt64) or dispatch.pending { abort("confirmed OOM rejection consumed a native signal") } }
+    recoveryError(original, lost, progress)
+    if dispatch.pending {
+        let rejected = GpuFallbackAttempt.begin(stats, policy, original, false, op)
+        if rejected.isOkay() { abort("pending GPU work was duplicated as CPU fallback") }
+        original = rejected.unwrapErr(); rejected.releaseContainer(); recoveryError(original, lost, progress)
+        recoveryReject<Bool>(dispatch.close(), "gpu.busy")
+        op.cancellation = true; op.monotonicDeadline = -1 as Int64; var fuel = 0
+        while dispatch.pending and fuel < 1000000 {
+            let observed = dispatch.poll()
+            if observed.isOkay() { if observed.unwrap() { abort("device loss was accepted as successful GPU output") } }
+            else { let error = observed.unwrapErr(); recoveryError(error, true, progress); error.release() }; observed.releaseContainer(); fuel = fuel + 1
+        }
+        op.cancellation = false; op.monotonicDeadline = 9223372036854775807 as Int64
+        if dispatch.pending or stream.core.inFlight != 0 { abort("native failed GPU task did not retire") }
+    }
+    if deadline { op.monotonicDeadline = -1 as Int64 }
+    let admitted = GpuFallbackAttempt.begin(stats, policy, original, true, op)
+    op.monotonicDeadline = 9223372036854775807 as Int64
+    if disabled or deadline {
+        if admitted.isOkay() { abort("disabled or expired caller policy executed CPU fallback") }
+        let error = admitted.unwrapErr(); admitted.releaseContainer()
+        if deadline { if error.code != "gpu.timeout" or error.causes.length() != 1 { abort("fallback deadline lost original GPU cause") }; recoveryError(error.causes[0], lost, progress) }
+        else { recoveryError(error, lost, progress) }; error.release()
+        if stats.admitted != 0 or stats.succeeded != 0 { abort("rejected policy fabricated fallback counters") }
+        i = 0; while i < 37 { if cpuOutput.data[i] != (2913840557 as UInt32) { abort("disabled fallback changed CPU destination") }; i = i + 1 }
+    } else {
+        let attempt = recoveryTake<GpuFallbackAttempt>(admitted)
+        recoveryReject<Bool>(stats.close(), "gpu.busy")
+        if cpuError { op.cancellation = true }
+        let finished = attempt.finish(recoveryCpuFoundation(cpuInput, cpuOutput, op)); op.cancellation = false
+        if cpuError {
+            if finished.isOkay() { abort("failed actual CPU fallback was reported successful") }
+            let error = finished.unwrapErr(); finished.releaseContainer()
+            if error.code != "gpu.fallback_failed" or error.causes.length() != 2 or error.causes[1].code != "gpu.cancelled" { abort("CPU fallback failure lost either operation") }; recoveryError(error.causes[0], lost, progress); error.release()
+            if stats.failed != 1 or stats.succeeded != 0 { abort("failed CPU operation fabricated success counters") }
+            i = 0; while i < 37 { if cpuOutput.data[i] != (2913840557 as UInt32) { abort("cancelled CPU operation wrote output") }; i = i + 1 }
+        } else {
+            completed(finished, true)
+            if attempt.original.isNone() { abort("successful fallback lost original GPU observability") }; recoveryError(attempt.original.unwrap(), lost, progress)
+            i = 0; while i < 37 { if cpuOutput.data[i] != recoveryExpected(i) { abort("actual CPU fallback differs from independent wrap-u32 task oracle") }; i = i + 1 }
+            if stats.succeeded != 1 or stats.admitted != 1 { abort("actual CPU fallback was not counted exactly once") }
+            if lost { if stats.deviceLostSucceeded != 1 or stats.outOfMemorySucceeded != 0 { abort("fallback reason counters differ") } }
+            else { if stats.outOfMemorySucceeded != 1 or stats.deviceLostSucceeded != 0 { abort("fallback reason counters differ") } }
+        }
+        recoveryReject<Bool>(stats.release(), "gpu.busy"); completed(attempt.release(), true)
+    }
+    var gpuRetried = false
+    if mode == "oom-disabled" {
+        let retry = recoveryTake<UInt64>(dispatch.submit(5 as UInt64, 1 as UInt64, 1 as UInt64, op)); var complete = false; var fuel = 0
+        while not complete and fuel < 1000000 { complete = recoveryTake<Bool>(dispatch.poll()); fuel = fuel + 1 }
+        if not complete or retry == (0 as UInt64) { abort("recoverable OOM poisoned explicit GPU retry") }; gpuRetried = true
+    }
+    if lost { recoveryReject<UInt64>(stream.signal(op), "gpu.device_lost") }
+    completed(dispatch.release(), true)
+    if gpuRetried { let map = recoveryTake<GpuVulkanMappedRegion>(gpuVkMapBuffer(output, 0 as UInt64, 148 as UInt64, false, op)); i = 0; while i < 37 { if recoveryWord(map, i) != recoveryExpected(i) { abort("explicit native retry changed task semantics") }; i = i + 1 }; completed(map.release(), true) }
+    completed(stats.release(), true); cpuInput.close(); cpuInput.free(); cpuOutput.close(); cpuOutput.free()
+    completed(pipeline.release(), true); physical.release(); completed(stream.release(), true)
+    completed(input.release(), true); completed(output.release(), true); completed(scale.release(), true); completed(fault.release(), true)
+    completed(allocator.release(), true); completed(context.release(), true); completed(device.release(), true)
+    limits.free(); releaseOperation(op); seen_string_release_owned(binary); seen_string_release_owned(reflection); releaseArgs(arguments)
+    if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics { abort("native GPU-to-CPU fallback ownership inventory did not drain") }
+    println("PASS: actual reflected GPU failure, retirement-gated explicit CPU fallback, original causes, native retry and exact ownership")
+    return 0
+}

@@ -7,6 +7,7 @@
 # produced by safe_rebuild.sh.
 
 set -euo pipefail
+unset SEEN_LLVM_FAILURE_PROBE_STAGE
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"

@@ -12,6 +12,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd -P)"
 MEMORY_GUARD="$SCRIPT_DIR/memory_guard.sh"
 ARTIFACT_ROOT_HELPER="$SCRIPT_DIR/artifact_root.sh"
 SERIAL_AUXILIARY_HELPER="$SCRIPT_DIR/serial_auxiliary_env.sh"
+MEMORY_BUDGET_HELPER="$SCRIPT_DIR/memory_budget.sh"
 LABEL="Seen build-capable command"
 VERIFY_ONLY=0
 TIMEOUT_SECS=0
@@ -108,10 +109,16 @@ if [ ! -f "$SERIAL_AUXILIARY_HELPER" ]; then
     echo "ERROR: required serial-auxiliary helper is missing: $SERIAL_AUXILIARY_HELPER" >&2
     exit 126
 fi
+if [ ! -f "$MEMORY_BUDGET_HELPER" ] || [ -L "$MEMORY_BUDGET_HELPER" ]; then
+    echo "ERROR: required memory-budget helper is missing or unsafe" >&2
+    exit 126
+fi
 # shellcheck source=scripts/artifact_root.sh
 source "$ARTIFACT_ROOT_HELPER"
 # shellcheck source=scripts/serial_auxiliary_env.sh
 source "$SERIAL_AUXILIARY_HELPER"
+# shellcheck source=scripts/memory_budget.sh
+source "$MEMORY_BUDGET_HELPER"
 seen_artifact_root_init "$REPO_ROOT" || exit 126
 
 case "${TMPDIR:-}" in
@@ -224,6 +231,27 @@ cgroup_stop_kb=${SEEN_MEMORY_GUARD_CGROUP_STOP_KB:-$rss_kb}
 if ! is_positive_integer "$cgroup_stop_kb" || [ "$cgroup_stop_kb" -gt "$rss_kb" ]; then
     echo "ERROR: cgroup stop threshold must be positive and no larger than the aggregate cap" >&2
     exit 126
+fi
+if [ "$VERIFY_ONLY" = "0" ]; then
+    page_bytes=$(getconf PAGESIZE) || {
+        echo "ERROR: cannot read the kernel memory page size" >&2
+        exit 126
+    }
+    rss_kb=$(seen_memory_page_floor_kb "$rss_kb" "$page_bytes") &&
+        main_vmem_kb=$(seen_memory_page_floor_kb "$main_vmem_kb" "$page_bytes") &&
+        opt_vmem_kb=$(seen_memory_page_floor_kb "$opt_vmem_kb" "$page_bytes") || {
+        echo "ERROR: memory ceilings must admit at least one complete kernel page" >&2
+        exit 126
+    }
+    if [ "$opt_vmem_kb" -gt "$main_vmem_kb" ]; then
+        opt_vmem_kb=$main_vmem_kb
+    fi
+    if [ "$memory_limit_bytes" -gt "$((main_vmem_kb * 1024))" ]; then
+        memory_limit_bytes=$((main_vmem_kb * 1024))
+    fi
+    if [ "$cgroup_stop_kb" -gt "$rss_kb" ]; then
+        cgroup_stop_kb=$rss_kb
+    fi
 fi
 reserve_kb=${SEEN_MEMORY_GUARD_RESERVE_KB:-$((total_kb / 10))}
 half_available_for_reserve=$((available_kb / 2))

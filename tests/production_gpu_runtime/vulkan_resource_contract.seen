@@ -1,0 +1,76 @@
+import compute.vulkan_provider.{GpuVulkanProvider, openVulkanDevice}
+import compute.allocator.{GpuAllocator}
+import compute.buffer.{GpuBuffer}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.resource_stats.{GpuStats}
+import compute.error.{GpuError}
+import compute.limits.{GpuLimits}
+import core.result.{Result}
+import device_fixture_support.{operation, releaseOperation, gpuFixtureRejected}
+import provider_fixture_support.{completed}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+
+fun snapshot(result: Result<GpuStats, GpuError>) r: GpuStats {
+    if result.isErr() { abort("Vulkan pool statistics unavailable") }
+    let stats = result.unwrap(); result.releaseContainer()
+    if not stats.valid() { abort("Vulkan pool statistics violate accounting invariants") }
+    return stats
+}
+fun main() r: Int {
+    let memory = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics()
+    let op = operation(); let limits = GpuLimits.bounded(4, 2, 64, 1048576 as UInt64)
+    let discovered = GpuVulkanProvider.discover(op, limits, true)
+    if discovered.isErr() { abort("explicit Vulkan reference device unavailable") }
+    let provider = discovered.unwrap(); discovered.releaseContainer()
+    let opened = openVulkanDevice(provider, 0, op)
+    if opened.isErr() { abort("explicit Vulkan reference device selection failed") }
+    let device = opened.unwrap(); opened.releaseContainer()
+    let created = device.createContext(op)
+    if created.isErr() { abort("Vulkan resource context unavailable") }
+    let context = created.unwrap(); created.releaseContainer()
+    let kinds = [GpuMemoryKind.DeviceLocal, GpuMemoryKind.HostVisible, GpuMemoryKind.HostCoherent, GpuMemoryKind.Unified]
+    var index = 0
+    while index < kinds.length() {
+        let pooled = GpuAllocator.create(context, kinds[index], 1024 as UInt64, 2, op)
+        if pooled.isErr() { abort("Vulkan resource factory rejected a reference memory kind") }
+        let allocator = pooled.unwrap(); pooled.releaseContainer()
+        let firstResult = GpuBuffer<UInt32>.allocate(allocator, 8 as UInt64, 4 as UInt64, 256 as UInt64, op)
+        if firstResult.isErr() { abort("Vulkan native buffer allocation failed") }
+        let first = firstResult.unwrap(); firstResult.releaseContainer()
+        let secondResult = GpuBuffer<Float32>.allocate(allocator, 8 as UInt64, 4 as UInt64, 256 as UInt64, op)
+        if secondResult.isErr() { abort("Vulkan native buffer suballocation failed") }
+        let second = secondResult.unwrap(); secondResult.releaseContainer()
+        let firstOffset = first.byteOffset(); let secondOffset = second.byteOffset()
+        if firstOffset.isErr() or secondOffset.isErr() or firstOffset.unwrap() != (0 as UInt64) or secondOffset.unwrap() != (256 as UInt64) or
+            allocator.core.slots[first.slot].block != allocator.core.slots[second.slot].block {
+            abort("Vulkan typed buffers did not share the expected disjoint native ranges")
+        }
+        firstOffset.releaseContainer(); secondOffset.releaseContainer()
+        let used = snapshot(allocator.stats()); let block = allocator.core.blocks[0]
+        if used.requestedBytes != (64 as UInt64) or used.allocatedBytes != (512 as UInt64) or
+            used.usableBytes != (1024 as UInt64) or used.freeBytes != (512 as UInt64) or used.blocks != 1 or
+            used.committedBytes != block.native.committedBytes or used.residentBytes.isSome() or
+            block.native.buffer == (0 as UInt64) or block.native.memory == (0 as UInt64) {
+            abort("Vulkan SDK commitment and suballocation accounting disagree")
+        }
+        gpuFixtureRejected(allocator.release(), "gpu.busy"); gpuFixtureRejected(context.close(), "gpu.busy")
+        completed(first.release(), true); completed(second.release(), true)
+        gpuFixtureRejected(context.close(), "gpu.busy")
+        let cached = snapshot(allocator.stats())
+        if cached.freeBytes != (1024 as UInt64) or cached.committedBytes != used.committedBytes { abort("Vulkan cache lost commitment or free capacity") }
+        cached.release(); completed(allocator.trim(), true); completed(allocator.release(), true)
+        // Owning scalar snapshots remain independent of freed native blocks.
+        if used.committedBytes < (1024 as UInt64) { abort("Vulkan SDK snapshot did not outlive block destruction") }
+        used.release()
+        if device.core.resourceCommittedBytes != (0 as UInt64) or device.core.resourceBorrowers != 0 {
+            abort("Vulkan allocator retained device-wide budget or owner leases")
+        }
+        index = index + 1
+    }
+    kinds.free(); completed(context.release(), true); completed(device.release(), true)
+    limits.release(); releaseOperation(op)
+    if seen_memory_used_bytes() != memory or seen_sync_live_atomics() != atomics { abort("Vulkan native buffer and memory cleanup leaked ownership") }
+    println("PASS: GPU-006B Vulkan software reference typed suballocation explicit memory kinds SDK commitment and native drain")
+    return 0
+}

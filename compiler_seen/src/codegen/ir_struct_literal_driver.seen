@@ -15,7 +15,7 @@ import codegen.ir_struct_field_resolution.{resolveKnownStructFieldImpl}
 import codegen.ir_struct_gen.{emitStructFieldStoresImpl, resolveStructLiteralFieldFallback, inferStructFieldTypeFromExpr}
 import codegen.ir_type_info.{g_resolvedFieldIndex, g_resolvedFieldTypeCode, decodeFieldTypeCode}
 import codegen.ir_type_layout.{getLlvmTypeSizeImpl, computeStructSizeFromLayoutImpl}
-import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
+import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl, eraseFloatingWordImpl}
 import codegen.ir_assignment_gen.{coerceMethodCallHandleAssignmentImpl}
 import codegen.type_registry_core.{findStructReg}
 
@@ -231,9 +231,20 @@ fun generateStructLiteralState(ctx: CodegenLoweringContext,
                     fieldValueExpr)
                 let rawFieldReg = fieldReg
                 let fieldValueLlvmType = mapTypeState(fieldValueSeenType)
-                fieldReg = coerceValueForLlvmTargetImpl(output,
-                    getFeatureRegBoxImpl(), fieldType, fieldValueSeenType,
-                    fieldValueLlvmType, fieldReg)
+                let semanticFieldType = mapTypeState(
+                    getSeenFieldTypeState(structName, fieldName))
+                if fieldType == "i64" and
+                    (semanticFieldType == "double" or semanticFieldType == "float") {
+                    let scalar = coerceValueForLlvmTargetImpl(output,
+                        getFeatureRegBoxImpl(), semanticFieldType,
+                        fieldValueSeenType, fieldValueLlvmType, fieldReg)
+                    fieldReg = eraseFloatingWordImpl(output,
+                        getFeatureRegBoxImpl(), semanticFieldType, scalar)
+                } else {
+                    fieldReg = coerceValueForLlvmTargetImpl(output,
+                        getFeatureRegBoxImpl(), fieldType, fieldValueSeenType,
+                        fieldValueLlvmType, fieldReg)
+                }
                 fieldReg = coerceMethodCallHandleAssignmentImpl(output,
                     getFeatureRegBoxImpl(), fieldType, fieldValueSeenType,
                     rawFieldReg, fieldValueExpr.kind, fieldReg,

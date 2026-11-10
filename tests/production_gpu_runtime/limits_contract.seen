@@ -1,0 +1,53 @@
+import compute.limits.{GpuLimits, GPU_MAX_DEVICES, GPU_MAX_CONTEXTS, GPU_MAX_RESOURCES, GPU_MAX_MEMORY_BYTES}
+import compute.error.{GpuError}
+import core.result.{Result}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun rejected(value: Result<Bool, GpuError>) r: Void {
+    if value.isOkay() { abort("GPU invalid limits accepted") }
+    let error = value.unwrapErr(); value.releaseContainer()
+    if error.code != "gpu.limit" or error.retryable { abort("GPU limit diagnostic changed") }
+    error.release()
+}
+fun main() r: Int {
+    let memory = seen_memory_used_bytes()
+    let limits = GpuLimits.bounded(1, 1, 1, 1 as UInt64)
+    let valid = limits.validate(); if valid.isErr() { abort("minimum GPU limits rejected") }; valid.releaseContainer()
+    let copied = limits.snapshot(); if copied.isErr() { abort("GPU limit snapshot failed") }
+    let owned = copied.unwrap(); copied.releaseContainer()
+    limits.maxDevices = GPU_MAX_DEVICES
+    limits.maxContexts = GPU_MAX_CONTEXTS; limits.maxResources = GPU_MAX_RESOURCES
+    limits.maxBytes = GPU_MAX_MEMORY_BYTES
+    let maximum = limits.validate(); if maximum.isErr() { abort("maximum GPU limits rejected") }; maximum.releaseContainer()
+    if owned.maxDevices != 1 or owned.maxContexts != 1 or owned.maxResources != 1 or owned.maxBytes != (1 as UInt64) {
+        abort("GPU limit snapshot borrowed mutable caller state")
+    }
+    owned.release()
+    var field = 0
+    while field < 7 {
+        let bad = GpuLimits.bounded(1, 1, 1, 1 as UInt64)
+        if field == 0 { bad.maxDevices = 0 }
+        if field == 1 { bad.maxContexts = 0 }
+        if field == 2 { bad.maxResources = 0 }
+        if field == 3 { bad.maxIdentityBytes = 0 }
+        if field == 4 { bad.maxNameBytes = 0 }
+        if field == 5 { bad.maxVersionBytes = 0 }
+        if field == 6 { bad.maxBytes = 0 as UInt64 }
+        rejected(bad.validate())
+        let snapshot = bad.snapshot()
+        if snapshot.isOkay() { abort("invalid GPU limits were snapshotted") }
+        snapshot.unwrapErr().release(); snapshot.releaseContainer()
+        if field == 0 { bad.maxDevices = GPU_MAX_DEVICES + 1 }
+        if field == 1 { bad.maxContexts = GPU_MAX_CONTEXTS + 1 }
+        if field == 2 { bad.maxResources = GPU_MAX_RESOURCES + 1 }
+        if field == 3 { bad.maxIdentityBytes = 129 }
+        if field == 4 { bad.maxNameBytes = 257 }
+        if field == 5 { bad.maxVersionBytes = 129 }
+        if field == 6 { bad.maxBytes = GPU_MAX_MEMORY_BYTES + (1 as UInt64) }
+        rejected(bad.validate()); bad.release(); field = field + 1
+    }
+    limits.release()
+    if seen_memory_used_bytes() != memory { abort("GPU limits leaked allocations") }
+    println("PASS: GPU-006A checked device/context/resource limits and owned snapshots")
+    return 0
+}

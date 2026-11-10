@@ -1,0 +1,35 @@
+/// Subgroup operations execute before per-lane fault branches. Shuffle sources
+/// must be both in range and active; invalid sources yield zero and a fault.
+import codegen.gpu_ir_model.{GpuIrInstruction}
+import codegen.gpu.spirv_function.{GpuSpirvFunction}
+import codegen.gpu_emission_frame.{GpuEmissionFrame}
+import codegen.gpu.spirv_math.{spirvBinaryValue, spirvUnaryValue, spirvSelectValue}
+import typechecker.gpu_types.{gpuTypeScalar}
+
+fun spirvSubgroup(function: GpuSpirvFunction, frame: GpuEmissionFrame, borrow op: GpuIrInstruction) r: Int {
+    let context = function.context; context.capability(61); let scope = context.constant(3, 3)
+    let result = context.id(); let typeId = context.valueType(op.typeCode)
+    if op.immediate == 1 { function.emit(333, [typeId, result, scope]); return result }
+    if op.immediate == 2 or op.immediate == 3 {
+        context.capability(62); function.emit(332 + op.immediate, [typeId, result, scope, frame.registers[op.operands[0]]]); return result
+    }
+    if op.immediate == 4 or op.immediate == 5 {
+        context.capability(64); context.capability(65)
+        let width = function.builtin(6); let lane = frame.registers[op.operands[1]]
+        let laneFits = spirvBinaryValue(function, 176, 1, lane, width)
+        let ballotFits = spirvBinaryValue(function, 176, 1, lane, context.constant(3, 128))
+        let inRange = spirvBinaryValue(function, 167, 1, laneFits, ballotFits)
+        let safeLane = spirvSelectValue(function, 3, inRange, lane, context.constant(3, 0))
+        let ballot = context.id(); function.emit(339, [context.valueType(51), ballot, scope, context.constant(1, 1)])
+        let active = context.id(); function.emit(341, [context.valueType(1), active, scope, ballot, safeLane])
+        let valid = spirvBinaryValue(function, 167, 1, inRange, active); let native = context.id()
+        function.emit(345, [typeId, native, scope, frame.registers[op.operands[0]], safeLane])
+        function.emit(169, [typeId, result, valid, native, context.zero(op.typeCode)])
+        function.faultWhen(spirvUnaryValue(function, 168, 1, valid), 1); return result
+    }
+    if op.immediate == 6 {
+        context.capability(63); var opcode = 349; if gpuTypeScalar(op.typeCode) == 4 { opcode = 350 }
+        function.emit(opcode, [typeId, result, scope, 0, frame.registers[op.operands[0]]]); return result
+    }
+    context.error("E_GPU_SPIRV_UNSUPPORTED", "SPIR-V subgroup identity is unsupported"); return 0
+}

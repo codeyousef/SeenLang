@@ -1,0 +1,119 @@
+import core.result.{Result, Ok, Err}
+import async.structured.{AsyncError, AsyncOperationContext, validateAsyncContext}
+import async.executor_core.{ExecutorCore, executorFailure, executorContextFailure,
+    EXECUTOR_FOREVER, executorParkOrHelpLocked, executorStopStatusLocked}
+import async.sync_domain.{asyncSyncAttach, asyncSyncDetach}
+
+@move
+class AsyncWaitGroup {
+    var core: ExecutorCore
+    var total: Int
+    var remaining: Int
+    var limit: Int
+    var failure: Int32
+    var waiters: Int
+    var closed: Bool
+
+    static fun create(core: ExecutorCore, count: Int, limit: Int)
+        r: Result<AsyncWaitGroup, AsyncError> {
+        if count < 0 or limit <= 0 or count > limit or limit > core.limits.tasks {
+            return Err<AsyncWaitGroup, AsyncError>(executorFailure(2 as Int32,
+                "wait_group.create", 0 as UInt64))
+        }
+        let status = asyncSyncAttach(core)
+        if status != (0 as Int32) {
+            return Err<AsyncWaitGroup, AsyncError>(executorFailure(status,
+                "wait_group.create", 0 as UInt64))
+        }
+        return Ok<AsyncWaitGroup, AsyncError>(AsyncWaitGroup{core: core,
+            total: count, remaining: count, limit: limit, failure: 0 as Int32,
+            waiters: 0, closed: false})
+    }
+
+    fun done() r: Result<Bool, AsyncError> {
+        let status = this.core.lock(EXECUTOR_FOREVER)
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status, "wait_group.done", 0 as UInt64))
+        }
+        if this.closed or this.failure != (0 as Int32) or this.remaining <= 0 {
+            this.core.unlock()
+            return Err<Bool, AsyncError>(executorFailure(1 as Int32, "wait_group.done", 0 as UInt64))
+        }
+        this.remaining = this.remaining - 1
+        let complete = this.remaining == 0
+        this.core.notify()
+        this.core.unlock()
+        return Ok<Bool, AsyncError>(complete)
+    }
+
+    fun cancel() r: Result<Bool, AsyncError> {
+        let status = this.core.lock(EXECUTOR_FOREVER)
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status, "wait_group.cancel", 0 as UInt64))
+        }
+        this.failure = 9 as Int32
+        this.core.notify()
+        this.core.unlock()
+        return Ok<Bool, AsyncError>(true)
+    }
+
+    fun wait(context: AsyncOperationContext) r: Result<Bool, AsyncError> {
+        let valid = validateAsyncContext(context, "wait_group.wait", 0 as UInt64)
+        if valid.isErr() {
+            let error = valid.unwrapErr(); valid.releaseContainer()
+            return Err<Bool, AsyncError>(error)
+        }
+        valid.releaseContainer()
+        var status = this.core.lock(context.operation.monotonicDeadline)
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorContextFailure(status,
+                "wait_group.wait", 0 as UInt64, context))
+        }
+        if this.closed {
+            this.core.unlock()
+            return Err<Bool, AsyncError>(executorFailure(1 as Int32, "wait_group.wait", 0 as UInt64))
+        }
+        this.waiters = this.waiters + 1
+        while this.remaining > 0 and this.failure == (0 as Int32) and status == (0 as Int32) {
+            status = executorParkOrHelpLocked(this.core, context)
+        }
+        this.waiters = this.waiters - 1
+        if this.failure != (0 as Int32) { status = this.failure }
+        let progress = (this.total - this.remaining) as UInt64
+        this.core.unlock()
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorContextFailure(status,
+                "wait_group.wait", progress, context))
+        }
+        return Ok<Bool, AsyncError>(true)
+    }
+
+    // Owner excludes other calls during final release. Closing only cancels
+    // observers; a waiter retains the group until it has returned.
+    fun close() r: Result<Bool, AsyncError> {
+        let status = this.core.lock(EXECUTOR_FOREVER)
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status, "wait_group.close", 0 as UInt64))
+        }
+        this.closed = true
+        this.failure = 9 as Int32
+        this.core.notify()
+        this.core.unlock()
+        return Ok<Bool, AsyncError>(true)
+    }
+
+    fun release() r: Result<Bool, AsyncError> {
+        let status = this.core.lock(EXECUTOR_FOREVER)
+        if status != (0 as Int32) {
+            return Err<Bool, AsyncError>(executorFailure(status, "wait_group.release", 0 as UInt64))
+        }
+        if not this.closed or this.waiters != 0 {
+            this.core.unlock()
+            return Err<Bool, AsyncError>(executorFailure(1 as Int32, "wait_group.release", 0 as UInt64))
+        }
+        this.core.unlock()
+        asyncSyncDetach(this.core)
+        this.free()
+        return Ok<Bool, AsyncError>(true)
+    }
+}

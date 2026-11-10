@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/codeyousef/seen/tools/seen-pkg/internal/cache"
 	"github.com/codeyousef/seen/tools/seen-pkg/internal/lockfile"
 	"github.com/codeyousef/seen/tools/seen-pkg/internal/model"
 )
@@ -42,11 +43,18 @@ func prebuiltArtifactV2(t *testing.T, root string) {
 	t.Helper()
 	interfaceIndex := "schema\tseen-package-interface-v2\n" +
 		"version\t2\n" +
-		"layout_abi\tseen-layout-abi-v2\n" +
+		"layout_abi\tseen-layout-abi-v3\n" +
 		"object_cache_abi\tseen-object-cache-abi-v3\n" +
 		"module\tsrc/value.seen\tpackage\tvalue\tmodule-fingerprint\n" +
 		"function\tsrc/value.seen\tpublic\tvalue\tdeclaration-fingerprint\tcanonical-declaration\n"
 	digest := sha256.Sum256([]byte(interfaceIndex))
+	objectDigest := sha256.Sum256([]byte("object"))
+	objectManifest := "schema\tseen-package-object-manifest-v2\n" +
+		"version\t2\n" +
+		"layout_abi\tseen-layout-abi-v3\n" +
+		"object_cache_abi\tseen-object-cache-abi-v3\n" +
+		"objects/value.o\tsrc/value.seen\t" + hex.EncodeToString(objectDigest[:]) + "\n"
+	manifestDigest := sha256.Sum256([]byte(objectManifest))
 	manifest := "schema = \"seen-prebuilt-package-v2\"\n" +
 		"version = 2\n" +
 		"name = \"mathx\"\n" +
@@ -57,23 +65,88 @@ func prebuiltArtifactV2(t *testing.T, root string) {
 		"interface_version = 2\n" +
 		"object_manifest_schema = \"seen-package-object-manifest-v2\"\n" +
 		"object_manifest_version = 2\n" +
-		"layout_abi = \"seen-layout-abi-v2\"\n" +
+		"layout_abi = \"seen-layout-abi-v3\"\n" +
 		"object_cache_abi = \"seen-object-cache-abi-v3\"\n" +
 		"interface_path = \"src\"\n" +
 		"interface_index = \"interface.index.tsv\"\n" +
 		"object_manifest = \"objects.tsv\"\n" +
+		"object_manifest_sha256 = \"" + hex.EncodeToString(manifestDigest[:]) + "\"\n" +
 		"declaration_digest = \"" + hex.EncodeToString(digest[:]) + "\"\n" +
-		"build_signature = \"target=linux-x86_64|pic=1|layout=seen-layout-abi-v2|object-cache=seen-object-cache-abi-v3\"\n"
-	objectManifest := "schema\tseen-package-object-manifest-v2\n" +
-		"version\t2\n" +
-		"layout_abi\tseen-layout-abi-v2\n" +
-		"object_cache_abi\tseen-object-cache-abi-v3\n" +
-		"objects/value.o\tsrc/value.seen\n"
+		"build_signature = \"target=linux-x86_64|pic=1|layout=seen-layout-abi-v3|object-cache=seen-object-cache-abi-v3\"\n"
 	writeTestFile(t, filepath.Join(root, "Seen.pkg.toml"), manifest)
 	writeTestFile(t, filepath.Join(root, "interface.index.tsv"), interfaceIndex)
 	writeTestFile(t, filepath.Join(root, "objects.tsv"), objectManifest)
 	writeTestFile(t, filepath.Join(root, "objects", "value.o"), "object")
 	writeTestFile(t, filepath.Join(root, "src", "value.seen"), "pub fun value() r: Int { return 1 }\n")
+}
+
+func TestArtifactObjectRowsRequireConcreteDigests(t *testing.T) {
+	root := t.TempDir()
+	prebuiltArtifactV2(t, root)
+	digest := sha256.Sum256([]byte("object"))
+	valid := "objects/value.o\tsrc/value.seen\t" + hex.EncodeToString(digest[:])
+	if err := validateArtifactObjectRows(root, []string{valid}); err != nil {
+		t.Fatalf("current compiler's hash-bearing row rejected: %v", err)
+	}
+	for _, row := range []string{
+		"objects/value.o\tsrc/value.seen",
+		"objects/value.o\tsrc/value.seen\t",
+		"objects/value.o\tsrc/value.seen\t" + strings.Repeat("x", 64),
+		"objects/value.o\tsrc/value.seen\t" + strings.ToUpper(hex.EncodeToString(digest[:])),
+		"objects/value.o\tsrc/value.seen\t" + strings.Repeat("0", 64),
+		valid + "\textra",
+		"objects/value.o\t../escaped.seen\t" + hex.EncodeToString(digest[:]),
+	} {
+		if err := validateArtifactObjectRows(root, []string{row}); err == nil {
+			t.Fatalf("unverified object row accepted: %q", row)
+		}
+	}
+	writeTestFile(t, filepath.Join(root, "objects", "value.o"), "tampered")
+	if err := validateArtifactObjectRows(root, []string{valid}); err == nil {
+		t.Fatal("changed object bytes accepted with original digest")
+	}
+}
+
+func TestProductionFetchRejectsArtifactObjectIntegrityDrift(t *testing.T) {
+	for _, member := range []string{"objects.tsv", "objects/value.o"} {
+		t.Run(member, func(t *testing.T) {
+			root := t.TempDir()
+			project := filepath.Join(root, "project")
+			artifact := filepath.Join(root, "artifact")
+			prebuiltArtifactV2(t, artifact)
+			name := filepath.Join(artifact, filepath.FromSlash(member))
+			raw, err := os.ReadFile(name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			writeTestFile(t, name, string(raw)+"# tampered\n")
+			writeTestFile(t, filepath.Join(project, "Seen.toml"), "[project]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\nmathx = { artifact = \"../artifact\" }\n")
+			code, stderr := runBackend(t, "fetch", filepath.Join(project, "Seen.toml"), "--quiet")
+			if code == 0 || !strings.Contains(stderr, "digest mismatch") ||
+				!strings.Contains(stderr, prebuiltArtifactRebuildGuidance) {
+				t.Fatalf("integrity drift code=%d stderr=%s", code, stderr)
+			}
+		})
+	}
+}
+
+func TestProductionFetchRejectsObsoleteArtifactLayout(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "project")
+	artifact := filepath.Join(root, "artifact")
+	prebuiltArtifactV2(t, artifact)
+	name := filepath.Join(artifact, "Seen.pkg.toml")
+	raw, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, name, strings.ReplaceAll(string(raw), prebuiltLayoutABI, "seen-layout-abi-v2"))
+	writeTestFile(t, filepath.Join(project, "Seen.toml"), "[project]\nname = \"app\"\nversion = \"0.1.0\"\n[dependencies]\nmathx = { artifact = \"../artifact\" }\n")
+	code, stderr := runBackend(t, "fetch", filepath.Join(project, "Seen.toml"), "--quiet")
+	if code == 0 || !strings.Contains(stderr, "unsupported schema or ABI") ||
+		!strings.Contains(stderr, prebuiltArtifactRebuildGuidance) {
+		t.Fatalf("obsolete layout code=%d stderr=%s", code, stderr)
+	}
 }
 
 func thawLocalState(project string) {
@@ -105,8 +178,11 @@ seen_platform = { system = true, path = "native/lib" }
 	if err != nil {
 		t.Fatal(err)
 	}
-	fields := strings.Split(strings.TrimSpace(string(mapBytes)), "\t")
-	if len(fields) != 3 || fields[0] != project || fields[1] != "seen_std" {
+	if !strings.HasPrefix(string(mapBytes), packageMapHeader) {
+		t.Fatalf("map header=%q", mapBytes)
+	}
+	fields := strings.Split(strings.TrimSuffix(strings.TrimPrefix(string(mapBytes), packageMapHeader), "\n"), "\t")
+	if len(fields) != 4 || fields[0] != project || fields[1] != "seen_std" || fields[3] != "" {
 		t.Fatalf("map=%q", mapBytes)
 	}
 	view := fields[2]
@@ -306,13 +382,22 @@ func TestMixedHostedAndLocalRowsRemainComplete(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	hostedView := filepath.Join(project, ".seen", "views", "hosted", "source")
+	key := model.PackageKey{RegistryOrigin: "https://seen.dev.yousef.codes/packages", Package: "seen/hosted"}
+	pkg := model.LockedPackage{Package: key.Package, RegistryOrigin: key.RegistryOrigin, Version: "1.0.0", ArchiveSHA256: strings.Repeat("a", 64)}
+	contentKey, err := cacheKey(pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewRoot, err := cache.ProjectViewPath(project, contentKey, key.RegistryOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hostedView := filepath.Join(viewRoot, "source")
 	writeTestFile(t, filepath.Join(hostedView, "Seen.toml"), "[project]\nname = \"hosted\"\nversion = \"1.0.0\"\n[dependencies]\n")
 	if err := freezeLocalTree(filepath.Dir(hostedView)); err != nil {
 		t.Fatal(err)
 	}
-	key := model.PackageKey{RegistryOrigin: "https://seen.dev.yousef.codes/packages", Package: "seen/hosted"}
-	resolution := &model.Resolution{Root: model.Root{Dependencies: []model.Edge{{Alias: "hosted_dep", Package: key.Package, RegistryOrigin: key.RegistryOrigin}}}}
+	resolution := &model.Resolution{Packages: []model.LockedPackage{pkg}, Root: model.Root{Dependencies: []model.Edge{{Alias: "hosted_dep", Package: key.Package, RegistryOrigin: key.RegistryOrigin}}}}
 	hostedRows, err := packageMapRows(project, resolution, map[model.PackageKey]string{key: hostedView})
 	if err != nil {
 		t.Fatal(err)
@@ -323,6 +408,106 @@ func TestMixedHostedAndLocalRowsRemainComplete(t *testing.T) {
 	content, err := os.ReadFile(filepath.Join(project, ".seen", "package-map.tsv"))
 	if err != nil || !bytes.Contains(content, []byte("\thosted_dep\t")) || !bytes.Contains(content, []byte("\tlocal_dep\t")) {
 		t.Fatalf("mixed map=%q err=%v", content, err)
+	}
+}
+
+func TestHostedMapPrefixCannotBeOmittedOrRebound(t *testing.T) {
+	project := t.TempDir()
+	defer thawLocalState(project)
+	pkg := model.LockedPackage{
+		Package: "local/mathx", Version: "1.0.0",
+		RegistryOrigin: "https://registry.example/packages",
+		ArchiveSHA256:  strings.Repeat("a", 64),
+	}
+	contentKey, err := cacheKey(pkg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	viewRoot, err := cache.ProjectViewPath(project, contentKey, pkg.RegistryOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := filepath.Join(viewRoot, "source")
+	writeTestFile(t, filepath.Join(view, "Seen.toml"), "[project]\nname = 'mathx'\nversion = '1.0.0'\n")
+	if err := freezeLocalTree(viewRoot); err != nil {
+		t.Fatal(err)
+	}
+	resolution := &model.Resolution{
+		Packages: []model.LockedPackage{pkg},
+		Root: model.Root{Dependencies: []model.Edge{{
+			Alias: "calc", Package: pkg.Package, RegistryOrigin: pkg.RegistryOrigin,
+		}}},
+	}
+	rows, err := packageMapRows(project, resolution, map[model.PackageKey]string{pkg.Key(): view})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WritePackageMap(project, rows); err != nil {
+		t.Fatal(err)
+	}
+	mapPath := filepath.Join(project, ".seen", "package-map.tsv")
+	before, err := os.ReadFile(mapPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, identity := range []string{"", "hosted/" + strings.Repeat("b", 64) + "/local/mathx/1.0.0/" + pkg.ArchiveSHA256} {
+		mutated := append([]PackageMapRow(nil), rows...)
+		mutated[0].ModuleIdentity = identity
+		if err := WritePackageMap(project, mutated); err == nil {
+			t.Fatalf("unbound hosted provenance accepted: %q", identity)
+		}
+		after, err := os.ReadFile(mapPath)
+		if err != nil || !bytes.Equal(after, before) {
+			t.Fatalf("rejected provenance replaced authoritative map: %v", err)
+		}
+	}
+}
+
+func TestHostedMapPreservesDistinctOriginsForIdenticalContent(t *testing.T) {
+	project := t.TempDir()
+	defer thawLocalState(project)
+	origins := []string{"https://first.example/packages", "https://second.example/packages"}
+	aliases := []string{"first_math", "second_math"}
+	resolution := &model.Resolution{}
+	views := make(map[model.PackageKey]string)
+	expected := "schema\tseen-package-map-v2\n"
+	for index, origin := range origins {
+		pkg := model.LockedPackage{
+			Package: "alice/mathx", Version: "1.0.0", RegistryOrigin: origin,
+			ArchiveSHA256: strings.Repeat("a", 64),
+		}
+		contentKey, err := cacheKey(pkg)
+		if err != nil {
+			t.Fatal(err)
+		}
+		viewRoot, err := cache.ProjectViewPath(project, contentKey, origin)
+		if err != nil {
+			t.Fatal(err)
+		}
+		view := filepath.Join(viewRoot, "source")
+		writeTestFile(t, filepath.Join(view, "Seen.toml"), "[project]\nname = 'mathx'\nversion = '1.0.0'\n")
+		if err := freezeLocalTree(viewRoot); err != nil {
+			t.Fatal(err)
+		}
+		resolution.Packages = append(resolution.Packages, pkg)
+		resolution.Root.Dependencies = append(resolution.Root.Dependencies, model.Edge{
+			Alias: aliases[index], Package: pkg.Package, RegistryOrigin: origin,
+		})
+		views[pkg.Key()] = view
+		originHash := sha256.Sum256([]byte(origin))
+		prefix := "hosted/" + hex.EncodeToString(originHash[:]) + "/alice/mathx/1.0.0/" + pkg.ArchiveSHA256
+		expected += project + "\t" + aliases[index] + "\t" + view + "\t" + prefix + "\n"
+	}
+	rows, err := packageMapRows(project, resolution, views)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := WritePackageMap(project, rows); err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(filepath.Join(project, ".seen", "package-map.tsv"))
+	if err != nil || string(content) != expected {
+		t.Fatalf("origin-qualified map=%q want=%q err=%v", content, expected, err)
 	}
 }
 

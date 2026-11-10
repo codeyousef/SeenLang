@@ -1,0 +1,133 @@
+/// Bounded source coverage state. Counter updates are atomic across workers.
+import str.string.{StringBuilder}
+import codegen.source_coverage_model.{SourceCoverageRegion, SourceCoverageFunction}
+import codegen.source_coverage_emit.{emitSourceCoverageRecords}
+
+var sourceCoverageEnabled: Bool = false
+var sourceCoveragePath: String = ""
+var sourceCoverageError: Bool = false
+var sourceCoverageFunctions: Array<SourceCoverageFunction> = Array<SourceCoverageFunction>()
+var sourceCoverageStack: Array<Int> = Array<Int>()
+var sourceCoverageLines: Array<Int> = Array<Int>()
+var sourceCoverageColumns: Array<Int> = Array<Int>()
+var sourceCoverageCurrent: Int = -1
+var sourceCoverageLine: Int = 0
+var sourceCoverageColumn: Int = 1
+var sourceCoverageCounterCount: Int = 0
+
+fun beginSourceCoverageModule(path: String, enabled: Bool) r: Void {
+    sourceCoverageEnabled = enabled
+    sourceCoverageError = false
+    sourceCoveragePath = path
+    sourceCoverageFunctions.clear()
+    sourceCoverageStack.clear()
+    sourceCoverageLines.clear()
+    sourceCoverageColumns.clear()
+    sourceCoverageCurrent = -1
+    sourceCoverageCounterCount = 0
+    if enabled and (path == "" or path.length() > 4096 or path.contains("\n")) {
+        println("Error: [test.002a.invalid] source coverage path is invalid")
+        sourceCoverageError = true
+    }
+    var pathIndex = 0
+    while enabled and pathIndex < path.length() {
+        if path.byteAt(pathIndex) < 32 or path.byteAt(pathIndex) == 127 {
+            println("Error: [test.002a.invalid] source coverage path contains a control byte")
+            sourceCoverageError = true
+            return
+        }
+        pathIndex = pathIndex + 1
+    }
+}
+
+fun sourceCoverageActive() r: Bool {
+    return sourceCoverageEnabled and not sourceCoverageError
+}
+
+fun sourceCoverageValid() r: Bool { return not sourceCoverageError }
+
+fun coverageTakeCounter() r: Int {
+    if sourceCoverageCurrent < 0 or not sourceCoverageActive() { return -1 }
+    let function = sourceCoverageFunctions[sourceCoverageCurrent]
+    if sourceCoverageCounterCount >= 262144 or function.regions.length() >= 4096 {
+        println("Error: [test.002a.limit] source coverage counter budget exceeded")
+        sourceCoverageError = true
+        return -1
+    }
+    let counter = function.counterCount
+    function.counterCount = counter + 1
+    sourceCoverageCounterCount = sourceCoverageCounterCount + 1
+    return counter
+}
+
+fun coverageIncrement(output: StringBuilder, counter: Int, amount: String) r: Void {
+    let suffix = sourceCoverageCurrent.toString()
+    output.append("  %seen.cov." + counter.toString() +
+        " = atomicrmw add ptr getelementptr (i64, ptr @__seen_cov_counts_" + suffix +
+        ", i64 " + counter.toString() + "), i64 " + amount + " monotonic\n")
+}
+
+fun coverSourceStatement(output: StringBuilder, line: Int, column: Int) r: Void {
+    if line <= 0 or not sourceCoverageActive() or sourceCoverageCurrent < 0 { return }
+    sourceCoverageLine = line
+    sourceCoverageColumn = column
+    if sourceCoverageColumn < 1 { sourceCoverageColumn = 1 }
+    let counter = coverageTakeCounter()
+    if counter < 0 { return }
+    sourceCoverageFunctions[sourceCoverageCurrent].regions.push(SourceCoverageRegion{
+        line: line, column: sourceCoverageColumn, counter: counter,
+        otherCounter: 0, branch: false})
+    coverageIncrement(output, counter, "1")
+}
+
+fun beginSourceCoverageFunction(output: StringBuilder, name: String,
+    line: Int, column: Int) r: Void {
+    if not sourceCoverageActive() { return }
+    sourceCoverageStack.push(sourceCoverageCurrent)
+    sourceCoverageLines.push(sourceCoverageLine)
+    sourceCoverageColumns.push(sourceCoverageColumn)
+    if sourceCoverageFunctions.length() >= 16384 {
+        println("Error: [test.002a.limit] source coverage function budget exceeded")
+        sourceCoverageError = true
+        return
+    }
+    sourceCoverageCurrent = sourceCoverageFunctions.length()
+    sourceCoverageFunctions.push(SourceCoverageFunction{
+        name: sourceCoveragePath + ":" + name + ":" + sourceCoverageCurrent.toString(),
+        counterCount: 0, regions: Array<SourceCoverageRegion>()})
+    var entryLine = line
+    if entryLine <= 0 { entryLine = 1 }
+    coverSourceStatement(output, entryLine, column)
+}
+
+fun beginSourceCoverageClosure(output: StringBuilder, name: String) r: Void {
+    beginSourceCoverageFunction(output, name, sourceCoverageLine, sourceCoverageColumn)
+}
+
+fun endSourceCoverageFunction() r: Void {
+    if not sourceCoverageEnabled or sourceCoverageStack.length() == 0 { return }
+    sourceCoverageCurrent = sourceCoverageStack.pop()
+    sourceCoverageLine = sourceCoverageLines.pop()
+    sourceCoverageColumn = sourceCoverageColumns.pop()
+}
+
+fun coverSourceBranch(output: StringBuilder, condition: String) r: Void {
+    if not sourceCoverageActive() or sourceCoverageCurrent < 0 { return }
+    let yes = coverageTakeCounter()
+    let no = coverageTakeCounter()
+    if yes < 0 or no < 0 { return }
+    sourceCoverageFunctions[sourceCoverageCurrent].regions.push(SourceCoverageRegion{
+        line: sourceCoverageLine, column: sourceCoverageColumn, counter: yes,
+        otherCounter: no, branch: true})
+    let token = yes.toString()
+    output.append("  %seen.cov.yes." + token + " = zext i1 " + condition + " to i64\n")
+    output.append("  %seen.cov.no." + token + " = sub i64 1, %seen.cov.yes." + token + "\n")
+    coverageIncrement(output, yes, "%seen.cov.yes." + token)
+    coverageIncrement(output, no, "%seen.cov.no." + token)
+}
+
+fun finishSourceCoverageModule(output: StringBuilder) r: Void {
+    if sourceCoverageActive() and sourceCoverageFunctions.length() > 0 {
+        emitSourceCoverageRecords(output, sourceCoveragePath, sourceCoverageFunctions)
+    }
+}

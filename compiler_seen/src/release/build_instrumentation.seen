@@ -165,11 +165,14 @@ fun buildInstrumentationValidateChecked(policy: BuildInstrumentationPolicy,
             "core.rel.002.invalid", "validate",
             "build instrumentation policy is invalid"))
     }
-    if policy.target != "linux-x86_64" {
+    let nativeArmSanitizer = policy.target == "linux-arm64" and
+        not policy.coverage and
+        (policy.sanitizer == "address" or policy.sanitizer == "undefined")
+    if policy.target != "linux-x86_64" and not nativeArmSanitizer {
 
         return buildInstrumentationFailure(coreRel002Error(
             "core.rel.002.platform", "validate",
-            "build instrumentation execution requires Linux x86-64"))
+            "requested build instrumentation mode is unsupported on this target"))
     }
     return buildInstrumentationSuccess(policy)
 }

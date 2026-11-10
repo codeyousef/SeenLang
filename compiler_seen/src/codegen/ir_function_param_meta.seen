@@ -134,7 +134,9 @@ fun mapFunctionParameterTypeImpl(seenType: String, structNames: Array<String>,
         }
     }
     if mapped == "ptr" {
-        return "ptr noalias nonnull"
+        // Source handles include null Ptr and empty Array defaults. Only the
+        // inline-data address path above guarantees a non-null argument.
+        return "ptr noalias"
     }
     return mapped
 }
@@ -147,7 +149,7 @@ fun mapFunctionParameterStorageTypeImpl(seenType: String,
     let mapped = mapFunctionParameterTypeImpl(seenType, structNames,
         typeAliasNames, typeAliasTargets, typeAliasCount, enumTypeNames,
         reprCClassNames)
-    if mapped == "ptr noalias nonnull" {
+    if mapped == "ptr noalias" or mapped == "ptr noalias nonnull" {
         return "ptr"
     }
     return mapped

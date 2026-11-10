@@ -1,0 +1,15 @@
+import structural_support.{ValueSource, Concrete, forwardDynamic, forwardPointer}
+
+fun consumeDynamic(source: dyn ValueSource) r: Int {
+    let forwarded = forwardDynamic(source)
+    return forwarded.value()
+}
+
+fun consumePointer(source: *Concrete) r: Int {
+    let forwarded = forwardPointer(source)
+    return forwarded.value()
+}
+
+fun main() r: Int {
+    return 0
+}

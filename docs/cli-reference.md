@@ -1,8 +1,9 @@
 # CLI Reference
 
-This page documents the shipped Seen 0.22.11 compiler binary. The release
-entrypoint is `seen compile`; older `seen build` examples are stale for the
-current packaged compiler.
+This page documents the current **0.23.0 development source (unreleased)**.
+The latest published compiler is **0.22.11**. Both use `seen compile`; the
+legacy build subcommand is unsupported. Canonical `seen test` is available in current source but
+is not a command in published 0.22.11.
 
 ## Commands
 
@@ -15,7 +16,7 @@ seen --help
 seen -h
 ```
 
-`--version` prints the shipped compiler version and exits successfully.
+`--version` prints the selected compiler's version and exits successfully.
 `--help` prints the supported command surface and exits successfully.
 Every supported command also accepts `-h` and `--help`. Command parsing is
 strict: unknown flags, missing values, conflicting options, wrong arity, and
@@ -45,7 +46,7 @@ Common options:
 | `--target-cpu=<cpu>` | CPU baseline: `native`, `x86-64`, `x86-64-v3`, `x86-64-v4`, `rv64gc` |
 | `--simd=<policy>` | SIMD policy: `auto`, `none`, `sse4.2`, `avx2`, `avx512` |
 | `--simd-report` / `--simd-report=full` | Show LLVM vectorization reports |
-| `--backend=<name>` / `--backend <name>` | Backend selector; the shipped binary supports LLVM |
+| `--backend=<name>` / `--backend <name>` | Backend selector; the compiler supports LLVM |
 | `--deterministic` | Enable the deterministic semantic profile and force `--simd=none` |
 | `--sanitize=<policy>` | Sanitizer policy: `address`, `undefined`, `thread`, `memory` |
 | `--pgo-generate` | Build with profile-generation instrumentation |
@@ -67,7 +68,7 @@ Common options:
 | `--opt-jobs <n>` | Bound parallel optimizer workers |
 | `--projectprefix <n>` | Large-project validation prefix hint |
 
-Supported target platforms in the shipped help are:
+Supported target platforms in the compiler help are:
 
 ```text
 linux-x86_64, linux-arm64, linux-riscv64,
@@ -77,6 +78,11 @@ ios-arm64, ios-sim-arm64, android-arm64
 
 See [Compilation Targets](targets.md) for target triples, aliases, and
 RISC-V/QEMU verification commands.
+
+`--sanitize=address` and `--sanitize=undefined` also support Linux ARM64, with
+optional `--debug` but without `--coverage`. Coverage, thread/memory sanitizers,
+and debug-only instrumentation remain Linux-x86-64-only; unsupported combinations
+fail with `core.rel.002.platform` rather than dropping instrumentation.
 
 By default, `seen compile` prints bounded progress at useful phase checkpoints
 instead of one line per internal action. Warning diagnostics remain visible, and
@@ -159,6 +165,34 @@ first, `--no-cache` to force a fresh compile, and `--verbose` to show compiler
 diagnostics during the run. Run flags may appear before or after the input path.
 `--deterministic` selects the deterministic semantic and scalar-SIMD policy and
 uses the AOT pipeline because the JIT path does not accept a SIMD policy.
+
+### `seen test` (0.23.0 development only)
+
+Run the canonical deterministic test inventory on Linux x86-64. This command is
+not available in the published 0.22.11 binary.
+
+```bash
+seen test <project> [--filter <text>] \
+  [--profile default|ci|coverage|sanitizer-undefined|sanitizer-thread] \
+  [--jobs 1] [--timeout <duration>] \
+  [--include-ignored] [--include-slow] [--allow-privileged] \
+  [--report json:<path>] [--report junit:<path>]
+```
+
+The default profile is `default`, with one worker and a 600-second per-test
+timeout. Durations accept seconds or an `s`, `m`, or `h` suffix, from one second
+through one hour. Ignored, slow and privileged tests require their explicit
+opt-ins. Reports are repeatable and must stay below the project's `.seen_cache/test/`
+or `.seen/` directory without symlinks or parent traversal; per-test logs stay
+below `.seen_cache/test/run/`.
+
+Exit codes are `0` for all selected tests passing, `1` for test failure, `2`
+for invalid CLI or selection, `3` for infrastructure/report failure, and `130`
+for cancellation. Timeouts fail tests without an implicit retry. Coverage
+requires `llvm-profdata` and `llvm-cov`. A sanitizer profile name is not execution
+certification: production/Seen TSan remains uncertified, and ASan/MSan are not
+general runnable test profiles. See [Testing](testing.md) for the containment,
+instrumentation and acceptance contracts.
 
 ### Packaging Commands
 
@@ -255,8 +289,9 @@ seen pkg yank|report [options]
 
 The service exposes authenticated report, yank, appeal, and emergency-security
 workflows, while their CLI commands and private-package access remain inactive
-in 0.22.11. The development service and embedded trust root are live; production
-remains absent and fails closed.
+in current 0.23.0 development as well as published 0.22.11. The development
+service and embedded trust root are live; production remains absent and fails
+closed.
 
 ### Platform Packaging Commands
 
@@ -302,17 +337,21 @@ PGO modes require `--release`. Profile-use accepts only a canonical relative
 `.profdata` path and fails closed when it is missing or invalid. Select
 `--lto=full` for merged whole-program optimization or `--lto=thin` for bounded
 per-module ThinLTO; no mode silently falls back to the other.
+PGO and explicit `--lto` options currently require Linux x86-64. Plain native
+`--release` retains full merged optimization on eligible targets, including ARM64,
+without requesting that explicit-selection policy. Cross-target, object-manifest
+and exported-module full-LTO eligibility restrictions are unchanged.
 
 ## Unsupported Source-Wrapper Commands
 
-The shipped compiler intentionally does not expose the legacy source-wrapper
-commands `build`, `init`, `fmt`, `format`, `clean`, or `test`. These commands
-fail with a clear diagnostic. Use `seen compile` for builds and
-project-specific scripts for scaffolding, cleanup, and tests until those
-surfaces are implemented in the shipped entrypoint.
+The compiler intentionally does not expose the legacy source-wrapper commands
+`build`, `init`, `fmt`, `format`, or `clean`. These commands fail with a clear
+diagnostic. Use `seen compile` for builds and project-specific scripts for
+scaffolding and cleanup. Published 0.22.11 also rejects `test`; current 0.23.0
+source instead provides the canonical command documented above.
 
-The shipped compiler is LLVM-only. Passing `--backend=c` to `seen compile`
-fails with an explicit unsupported-backend diagnostic.
+The compiler is LLVM-only. Passing `--backend=c` to `seen compile` fails with an
+explicit unsupported-backend diagnostic.
 
 ## Cache Locations
 

@@ -1,0 +1,265 @@
+/// Manual persistent mixed-workload scenario; never a default 24-hour test.
+/// argv: SECONDS IO_PATH SHADER_SPV REFLECTION_JSON rtx4090|software-reference.
+import stress_fixture_support.{must, errorIs, atomicValue, context, counter, closeCounter}
+import cpu_stress_fixture_support.{StressTask, stressTask, runBatch, spawnStressTask}
+import io_stress_fixture_support.{IoStressProbe, handle, probe, pipeRound, awaitDispatch, reap, finishCancellation}
+import async_soak_fixture_support.{SoakGpu, soakDeadline}
+import async.structured.{AsyncOperationContext}
+import async.executor_core.{ExecutorLimits, executorReleaseContext}
+import async.multithread.{MultithreadExecutor, ExecutorJoinHandle}
+import async.event_loop.{AsyncEventLoop, ReadyIoJob}
+import async.completion_io.{AsyncFileCompletionQueue, completionFileHandle}
+import async.io_lease.{AsyncIoLease}
+import memory.aligned_buffer.{OwnedBuffer}
+import reactor.reactor.{OwnedHandle, Interest}
+import fs.file.{File}
+import fs.types.{Path, OpenOptions, DirectIoPolicy}
+import core.option.{Some}
+import env.env.{args, releaseArgs}
+import io.file.{size}
+import json.builder.{JsonBuilder_new, destroyJsonBuilder, seen_string_clone_owned, seen_string_release_owned}
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_memory_reserved_bytes() r: Int64
+extern "C" fun seen_executor_live_threads() r: UInt64
+extern "C" fun seen_sync_live_mutexes() r: UInt64
+extern "C" fun seen_sync_live_conditions() r: UInt64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+extern "C" fun seen_async_readiness_live_handles() r: UInt64
+extern "C" fun seen_sync_atomic_store(handle: UInt64, value: Int64, order: Int32) r: Int32
+extern "C" fun __ThreadYield() r: Void
+
+fun soakSeconds(text: String) r: Int {
+    if text.length() == 0 { return -1 }
+    var seconds = 0; var i = 0
+    while i < text.length() {
+        let byte = text.byteAt(i) as Int
+        if byte < 48 or byte > 57 { return -1 }
+        let digit = byte - 48
+        if seconds > 8640 or (seconds == 8640 and digit > 0) { return -2 }
+        seconds = seconds * 10 + digit; i = i + 1
+    }
+    if seconds < 1 { return -2 }; return seconds
+}
+fun resetCounter(value: UInt64) r: Void {
+    if seen_sync_atomic_store(value, 0 as Int64, 4 as Int32) != (0 as Int32) { abort("soak counter reset failed") }
+}
+fun cpuRound(borrow pool: MultithreadExecutor<StressTask>, unique: Array<UInt64>,
+    executions: UInt64, releases: UInt64, started: UInt64, ctx: AsyncOperationContext) r: Void {
+    let before = atomicValue(executions); let releaseBefore = atomicValue(releases)
+    runBatch(pool, unique, executions, releases, started, ctx)
+    resetCounter(unique[31])
+    let nested = must(spawnStressTask(pool, stressTask(5, 4, 0, unique[31], executions, releases, started), ctx))
+    let value = must(nested.join(ctx))
+    if value.result != 18 or atomicValue(unique[31]) != (1 as Int64) { abort("nested exactly-once/result differs") }
+    value.release(); nested.free()
+    resetCounter(started)
+    let blocked = Array<ExecutorJoinHandle<StressTask>>()
+    let pending = Array<ExecutorJoinHandle<StressTask>>(); var i = 0
+    while i < 10 { resetCounter(unique[i]); i = i + 1 }; i = 0
+    while i < 2 {
+        blocked.push(must(spawnStressTask(pool, stressTask(i, 0, 1, unique[i], executions, releases, started), ctx))); i = i + 1
+    }
+    let deadline = ctx.operation.monotonicDeadline
+    while atomicValue(started) != (2 as Int64) and seen_time_monotonic_nanos() < deadline { __ThreadYield() }
+    if atomicValue(started) != (2 as Int64) { abort("running cancellation start deadline exceeded") }
+    i = 0
+    while i < 8 {
+        pending.push(must(spawnStressTask(pool, stressTask(i, 0, 0, unique[i + 2], executions, releases, started), ctx))); i = i + 1
+    }
+    i = 0; while i < 8 { must(pending[i].cancel()); i = i + 1 }
+    i = 0; while i < 2 { must(blocked[i].cancel()); i = i + 1 }
+    i = 0
+    while i < 8 {
+        if not errorIs(pending[i].join(ctx), "async.cancelled") or atomicValue(unique[i + 2]) != (0 as Int64) { abort("queued cancellation executed work") }
+        pending[i].free(); i = i + 1
+    }
+    i = 0
+    while i < 2 {
+        if not errorIs(blocked[i].join(ctx), "async.cancelled") or atomicValue(unique[i]) != (1 as Int64) { abort("running cancellation lost exactly-once state") }
+        blocked[i].free(); i = i + 1
+    }
+    blocked.free(); pending.free()
+    if atomicValue(executions) != before + (39 as Int64) or atomicValue(releases) != releaseBefore + (47 as Int64) { abort("CPU execution/destructor conservation differs") }
+}
+
+@move
+class SoakFile {
+    var queue: AsyncFileCompletionQueue
+    var descriptor: OwnedHandle
+    var buffer: OwnedBuffer<UInt8>
+    static fun open(name: String, ctx: AsyncOperationContext) r: SoakFile {
+        let path = must(Path.fromString(name)); let options = OpenOptions.createNew()
+        let file = must(File.open(ctx.operation, path, options, DirectIoPolicy.Required)); options.free()
+        let descriptor = must(completionFileHandle(file))
+        must(file.close()); file.directIo.free(); file.free(); path.raw.free(); path.free()
+        let queue = must(AsyncFileCompletionQueue.create(2, 4096 as UInt64))
+        let buffer = must(OwnedBuffer<UInt8>.allocate(4096 as UInt64, 1 as UInt64, 4096 as UInt64))
+        var i = 0; while i < 4096 { buffer.data[i] = 42 as UInt8; i = i + 1 }
+        let first = must(queue.submit(descriptor, buffer, 4096 as UInt64, 0 as Int64, true, ctx))
+        let one = reap(queue)
+        if must(one.outcome()) != (4096 as UInt64) or queue.matches(first) { abort("direct initial first page failed") }; first.free()
+        let second = must(queue.submit(one.descriptor, one.buffer, 4096 as UInt64, 4096 as Int64, true, ctx)); one.free()
+        let two = reap(queue)
+        if must(two.outcome()) != (4096 as UInt64) or queue.matches(second) { abort("direct initial second page failed") }; second.free()
+        let owner = SoakFile{queue: queue, descriptor: two.descriptor, buffer: two.buffer}; two.free()
+        if size(name) != 8192 { abort("direct file is not fixed 8KiB") }; return owner
+    }
+    fun cycle(borrow reactor: AsyncEventLoop<IoStressProbe>, ctx: AsyncOperationContext,
+        executed: UInt64, released: UInt64) r: Void {
+        let written = must(this.queue.submit(this.descriptor, this.buffer, 4096 as UInt64, 0 as Int64, true, ctx))
+        let lease = must(this.queue.notificationLease())
+        let job = probe(executed, released, Some<AsyncIoLease>(lease))
+        let notification = must(reactor.register(job, job, handle(lease.native as Int64, false), Interest.Readable, -1 as Int64, ctx))
+        awaitDispatch(reactor, ctx); notification.free()
+        let complete = reap(this.queue)
+        if must(complete.outcome()) != (4096 as UInt64) or this.queue.matches(written) { abort("direct completion/progress differs") }; written.free()
+        let cancelled = must(this.queue.submit(complete.descriptor, complete.buffer, 4096 as UInt64, 4096 as Int64, true, ctx)); complete.free()
+        let cancellation = must(this.queue.cancel(cancelled))
+        let finished = finishCancellation(this.queue, cancellation); cancellation.free()
+        if not errorIs(finished.outcome(), "async.cancelled") or this.queue.matches(cancelled) { abort("direct cancellation failed ownership transition") }; cancelled.free()
+        this.descriptor = finished.descriptor; this.buffer = finished.buffer; finished.free()
+        if this.queue.active != 0 or this.queue.freeCount != 2 { abort("direct queue did not fully drain") }
+    }
+    fun release() r: Void {
+        must(this.descriptor.close()); this.descriptor.free(); this.buffer.close(); this.buffer.free()
+        must(this.queue.release()); this.free()
+    }
+}
+
+class SoakEvidence {
+    var uuid: String
+    var samples: Array<Int64>
+    var memory: Int64
+    var threads: UInt64
+    var mutexes: UInt64
+    var conditions: UInt64
+    var atomics: UInt64
+    var readiness: UInt64
+    var retained: Int64
+    fun emit(phase: String, seconds: Int, elapsed: Int64, iterations: Int64, deviceClass: String, hardware: Bool,
+        hotMemory: Int64, hotReserved: Int64) r: Void {
+        // Capture before temporary JSON-builder admission; evidence owners are
+        // independently measured and kept alive until the zero-exit assertion.
+        let currentMemory = seen_memory_used_bytes()
+        let report = JsonBuilder_new(); report.startObject()
+        report.stringProp("schema", "seen-async-stress-soak-v1"); report.stringProp("phase", phase)
+        report.intProp("planned_seconds", seconds); report.intProp("elapsed_ns", elapsed as Int)
+        report.intProp("iterations", iterations as Int); report.intProp("cpu_tasks", (iterations * (39 as Int64)) as Int)
+        report.intProp("io_completions", (iterations * (2 as Int64)) as Int)
+        report.intProp("gpu_completions", iterations as Int); report.intProp("gpu_callbacks", iterations as Int)
+        report.stringProp("device_class", deviceClass); report.stringProp("device_uuid", this.uuid)
+        if hardware { report.boolProp("hardware_execution_verified", 1) } else { report.boolProp("hardware_execution_verified", 0) }
+        report.boolProp("production_certified", 0); report.boolProp("performance_regression_verified", 0); report.boolProp("tsan_verified", 0)
+        report.intProp("steady_memory_bytes", hotMemory as Int); report.intProp("steady_reserved_bytes", hotReserved as Int)
+        report.intProp("baseline_memory_bytes", this.memory as Int); report.intProp("report_evidence_bytes", this.retained as Int)
+        report.intProp("baseline_threads", this.threads as Int); report.intProp("baseline_mutexes", this.mutexes as Int)
+        report.intProp("baseline_conditions", this.conditions as Int); report.intProp("baseline_atomics", this.atomics as Int)
+        report.intProp("baseline_readiness_handles", this.readiness as Int)
+        if phase == "begin" {
+            report.intProp("warmup_count", 5); report.intProp("measured_count", 30)
+            report.key("raw_mixed_nanoseconds"); report.startArray(); var i = 0
+            while i < this.samples.length() { report.number(this.samples[i] as Int); i = i + 1 }; report.endArray()
+        }
+        if phase == "passed" {
+            report.boolProp("cleanup_verified", 1); report.intProp("final_memory_bytes", currentMemory as Int)
+            report.intProp("final_threads", seen_executor_live_threads() as Int); report.intProp("final_mutexes", seen_sync_live_mutexes() as Int)
+            report.intProp("final_conditions", seen_sync_live_conditions() as Int); report.intProp("final_atomics", seen_sync_live_atomics() as Int)
+            report.intProp("final_readiness_handles", seen_async_readiness_live_handles() as Int)
+        }
+        report.endObject(); let text = report.build(); println(text); seen_string_release_owned(text); destroyJsonBuilder(report)
+    }
+    fun release() r: Void { seen_string_release_owned(this.uuid); this.samples.free(); this.free() }
+}
+
+fun mixedRound(borrow pool: MultithreadExecutor<StressTask>, unique: Array<UInt64>, executions: UInt64,
+    releases: UInt64, started: UInt64, borrow reactor: AsyncEventLoop<IoStressProbe>,
+    executedIo: UInt64, releasedIo: UInt64, borrow file: SoakFile, borrow gpu: SoakGpu, ctx: AsyncOperationContext) r: Int64 {
+    let before = seen_time_monotonic_nanos()
+    // A successful whole round is bounded to ten seconds, keeping heartbeat
+    // delivery within one minute plus one bounded round.
+    ctx.operation.monotonicDeadline = soakDeadline() - (50000000000 as Int64)
+    let calls = atomicValue(executedIo); let drops = atomicValue(releasedIo)
+    // Four persistent native workers are retained across all these transitions.
+    cpuRound(pool, unique, executions, releases, started, ctx)
+    pipeRound(reactor, ctx, executedIo, releasedIo, false)
+    pipeRound(reactor, ctx, executedIo, releasedIo, true)
+    file.cycle(reactor, ctx, executedIo, releasedIo)
+    gpu.cycle(reactor, ctx, executedIo, releasedIo)
+    if atomicValue(executedIo) != calls + (3 as Int64) or atomicValue(releasedIo) != drops + (4 as Int64) { abort("mixed I/O/GPU callback/destructor conservation differs") }
+    let after = seen_time_monotonic_nanos()
+    if before < (0 as Int64) or after < before or after >= ctx.operation.monotonicDeadline { abort("mixed operation finite deadline exceeded") }
+    return after - before
+}
+
+fun main() r: Int {
+    let memory = seen_memory_used_bytes(); let threads = seen_executor_live_threads(); let mutexes = seen_sync_live_mutexes()
+    let conditions = seen_sync_live_conditions(); let atomics = seen_sync_live_atomics(); let readiness = seen_async_readiness_live_handles()
+    let argv = args()
+    if argv.length() != 6 { println("async.invalid: expected exactly five operands"); releaseArgs(argv); return 1 }
+    let seconds = soakSeconds(argv[1])
+    if seconds == -1 { println("async.invalid: duration must be decimal"); releaseArgs(argv); return 1 }
+    if seconds == -2 { println("async.limit: duration must be 1..86400"); releaseArgs(argv); return 1 }
+    let hardware = argv[5] == "rtx4090"
+    if not hardware and argv[5] != "software-reference" { println("async.invalid: explicit device class required"); releaseArgs(argv); return 1 }
+    // All CLI bounds are checked before workers, file creation or GPU discovery.
+    let duration = (seconds as Int64) * (1000000000 as Int64)
+    let ctx = context(); ctx.operation.monotonicDeadline = soakDeadline()
+    ctx.limits.maxTasks = 64; ctx.limits.maxReady = 64; ctx.limits.maxFanOut = 64
+    let config = ExecutorLimits{workers: 2, tasks: 64, queued: 64, helpDepth: 8, stackBytes: 1048576 as UInt64}
+    let pool = must(MultithreadExecutor<StressTask>.create(config)); config.free()
+    let ioConfig = ExecutorLimits{workers: 2, tasks: 8, queued: 8, helpDepth: 4, stackBytes: 1048576 as UInt64}
+    let ioPool = must(MultithreadExecutor<ReadyIoJob<IoStressProbe>>.create(ioConfig)); ioConfig.free()
+    let reactor = must(AsyncEventLoop<IoStressProbe>.create(ioPool, 4))
+    let executions = counter(); let releases = counter(); let started = counter(); let executedIo = counter(); let releasedIo = counter()
+    let unique = Array<UInt64>(); var i = 0; while i < 32 { unique.push(counter()); i = i + 1 }
+    let file = SoakFile.open(argv[2], ctx); let gpu = SoakGpu.open(argv[3], argv[4], hardware)
+    let beforeEvidence = seen_memory_used_bytes()
+    let samples = Array<Int64>(); i = 0; while i < 30 { samples.push(0 as Int64); i = i + 1 }
+    let evidence = SoakEvidence{uuid: seen_string_clone_owned(gpu.device.core.info.identity.uuid), samples: samples,
+        memory: memory, threads: threads, mutexes: mutexes, conditions: conditions, atomics: atomics, readiness: readiness, retained: 0 as Int64}
+    evidence.retained = seen_memory_used_bytes() - beforeEvidence
+    i = 0; while i < 5 { mixedRound(pool, unique, executions, releases, started, reactor, executedIo, releasedIo, file, gpu, ctx); i = i + 1 }
+    i = 0; while i < 30 { samples[i] = mixedRound(pool, unique, executions, releases, started, reactor, executedIo, releasedIo, file, gpu, ctx); i = i + 1 }
+    let hotMemory = seen_memory_used_bytes(); let hotReserved = seen_memory_reserved_bytes()
+    let hotThreads = seen_executor_live_threads(); let hotMutexes = seen_sync_live_mutexes(); let hotConditions = seen_sync_live_conditions()
+    let hotAtomics = seen_sync_live_atomics(); let hotReadiness = seen_async_readiness_live_handles()
+    if hotThreads != threads + (4 as UInt64) { abort("persistent worker count differs") }
+    let begin = seen_time_monotonic_nanos()
+    if begin < (0 as Int64) or begin > (9223372036854775807 as Int64) - duration { abort("async.limit: soak deadline overflow") }
+    var iterations = 0 as Int64; var elapsed = 0 as Int64; var heartbeat = 60000000000 as Int64
+    evidence.emit("begin", seconds, elapsed, iterations, argv[5], hardware, hotMemory, hotReserved)
+    while elapsed < duration {
+        // Includes the 35 untimed full rounds in cumulative native counters.
+        if iterations >= (196241358230951000 as Int64) { abort("async.limit: cumulative task counters exhausted") }
+        mixedRound(pool, unique, executions, releases, started, reactor, executedIo, releasedIo, file, gpu, ctx)
+        iterations = iterations + (1 as Int64)
+        let rounds = iterations + (35 as Int64)
+        if atomicValue(executions) != rounds * (39 as Int64) or atomicValue(releases) != rounds * (47 as Int64) or
+            atomicValue(executedIo) != rounds * (3 as Int64) or atomicValue(releasedIo) != rounds * (4 as Int64) { abort("cumulative domain counters differ") }
+        if seen_memory_used_bytes() != hotMemory or seen_memory_reserved_bytes() > hotReserved or
+            seen_executor_live_threads() != hotThreads or seen_sync_live_mutexes() != hotMutexes or
+            seen_sync_live_conditions() != hotConditions or seen_sync_live_atomics() != hotAtomics or
+            seen_async_readiness_live_handles() != hotReadiness or size(argv[2]) != 8192 { abort("steady allocation/native worker/handle/file invariant differs") }
+        let now = seen_time_monotonic_nanos(); if now < begin { abort("monotonic soak clock regressed") }; elapsed = now - begin
+        if elapsed >= heartbeat {
+            evidence.emit("heartbeat", seconds, elapsed, iterations, argv[5], hardware, hotMemory, hotReserved)
+            heartbeat = elapsed + (60000000000 as Int64)
+        }
+    }
+    gpu.release(); file.release(); must(reactor.release()); must(ioPool.release()); must(pool.release())
+    i = 0; while i < 32 { closeCounter(unique[i]); i = i + 1 }; unique.free()
+    closeCounter(executions); closeCounter(releases); closeCounter(started); closeCounter(executedIo); closeCounter(releasedIo)
+    executorReleaseContext(ctx)
+    // Preserve only the explicitly measured reporting owners through emission.
+    releaseArgs(argv)
+    // Use literals after argv is released, never a dangling borrowed argument.
+    if seen_memory_used_bytes() != memory + evidence.retained or seen_executor_live_threads() != threads or
+        seen_sync_live_mutexes() != mutexes or seen_sync_live_conditions() != conditions or seen_sync_live_atomics() != atomics or
+        seen_async_readiness_live_handles() != readiness or elapsed < duration or iterations <= (0 as Int64) { abort("final owner/resource baseline differs") }
+    if hardware { evidence.emit("passed", seconds, elapsed, iterations, "rtx4090", true, hotMemory, hotReserved) }
+    else { evidence.emit("passed", seconds, elapsed, iterations, "software-reference", false, hotMemory, hotReserved) }
+    evidence.release()
+    if seen_memory_used_bytes() != memory { abort("post-report evidence did not fully drain") }
+    return 0
+}

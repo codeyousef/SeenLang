@@ -14,68 +14,203 @@ WORKFLOW = ".github/workflows/ci.yml"
 RELEASE_WORKFLOW = ".github/workflows/release.yml"
 MAX_FILES_HARD = 256
 MAX_BYTES_HARD = 4 * 1024 * 1024
-EXPECTED_WORKFLOW = """name: CI
+ACCEPTANCE_GROUPS = ("core", "io-simd", "gpu-emitter", "gpu-runtime", "async")
+CHECKOUT = "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683"
+SETUP_GO = "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e"
+UPLOAD_ARTIFACT = "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"
+# Official actions/download-artifact refs/tags/v4.3.0, resolved through GitHub's API.
+DOWNLOAD_ARTIFACT = "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093"
+SOURCE_SHA = "${{ github.sha }}"
+MATRIX_GROUP = "${{ matrix.group }}"
+DIAGNOSTIC_IF = "${{ !cancelled() }}"
+JOB_CLOCK = ('IFS=" " read -r uptime _ < /proc/uptime\n'
+             'printf \'SEEN_CI_JOB_STARTED_UPTIME_SECS=%s\\n\' "${uptime%%.*}" >> "$GITHUB_ENV"\n')
 
-on:
-  push:
-    branches: [main, release/0.22.11]
-  workflow_dispatch:
 
-permissions:
-  contents: read
+def provision_steps() -> list[dict]:
+    return [
+        {"if": DIAGNOSTIC_IF, "timeout-minutes": 1, "run": JOB_CLOCK},
+        {"uses": CHECKOUT, "with": {"ref": SOURCE_SHA}},
+        {"uses": SETUP_GO, "with": {"go-version": "1.26.5", "cache": False}},
+        {"run": "scripts/provision_ci_host.sh"},
+    ]
 
-concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
 
-jobs:
-  required:
-    name: required
-    runs-on: ubuntu-24.04
-    timeout-minutes: 210
-    env:
-      GOTOOLCHAIN: local
-      SEEN_RELEASE_CPU_BASELINE: x86-64
-    steps:
-      - name: Checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - name: Set up pinned Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e
-        with:
-          go-version: '1.26.5'
-          cache: false
-      - name: Provision required isolation and search tools
-        run: scripts/provision_ci_host.sh
-      - name: Run required contained gates
-        run: scripts/run_ci_required.sh
-      - name: Prepare verified release toolchain
-        run: scripts/prepare_release_toolchain_artifact.sh
-      - name: Retain exact-commit release toolchain
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: seen-release-toolchain-${{ github.sha }}
-          path: target/seen-build/release-toolchain.tar.gz
-          if-no-files-found: error
-          retention-days: 14
-          compression-level: 0
-      - name: Retain failed-gate frontend diagnostics
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: seen-failed-frontend-${{ github.sha }}
-          path: |
-            .seen/agent-tools/safe-rebuild/run.*/stage2_safe_rebuild
-            .seen/agent-tools/safe-rebuild/run.*/stage3_safe_rebuild
-            .seen/agent-tools/safe-rebuild/run.*/stage3_safe_rebuild_recovery
-            .seen/agent-tools/safe-rebuild/run.*/inf-simd-*/*.log
-            .seen/agent-tools/safe-rebuild/run.*/inf-simd-*/pointer-index-*-ir/*.ll
-            .seen/agent-tools/safe-rebuild/run.*/inf-simd-b.*/contract-*-ir/*.ll
-            releases/compatibility-manifest.json
-          include-hidden-files: true
-          if-no-files-found: ignore
-          retention-days: 3
-          compression-level: 6
-""".encode("utf-8")
+def artifact_upload(name: str, path: str, *, days: int = 14, compression: int = 6,
+                    missing: str = "error", diagnostic: bool = False,
+                    hidden: bool = False) -> dict:
+    step = {"uses": UPLOAD_ARTIFACT, "with": {
+        "name": name, "path": path, "if-no-files-found": missing,
+        "retention-days": days, "compression-level": compression,
+    }}
+    if diagnostic:
+        step["if"] = DIAGNOSTIC_IF
+        step["timeout-minutes"] = 1
+    if hidden:
+        step["with"]["include-hidden-files"] = True
+    return step
+
+
+def diagnostics(phase: str) -> list[dict]:
+    return [
+        {"if": DIAGNOSTIC_IF, "timeout-minutes": 1,
+         "run": "python3 scripts/collect_verification_logs.py"},
+        artifact_upload(f"seen-verification-logs-{phase}-{SOURCE_SHA}",
+                        "target/seen-build/verification-logs/", days=7, diagnostic=True),
+        artifact_upload(f"seen-accelerator-evidence-{phase}-{SOURCE_SHA}",
+                        ".seen/accelerator-gate-evidence/*.tar.gz\n"
+                        ".seen/accelerator-gate-evidence/index.json\n",
+                        compression=0, missing="ignore", diagnostic=True, hidden=True),
+        artifact_upload(f"seen-io-overlap-{phase}-{SOURCE_SHA}",
+                        ".seen/agent-tools/safe-rebuild/run.*/io-overlap-evidence.*/*.json",
+                        missing="ignore", diagnostic=True, hidden=True),
+    ]
+
+
+def candidate_steps() -> list[dict]:
+    return [
+        {"uses": DOWNLOAD_ARTIFACT, "with": {
+            "name": f"seen-bootstrap-candidate-{SOURCE_SHA}",
+            "path": "target/seen-build/candidate-transfer/",
+        }},
+        {"run": 'python3 scripts/ci_bootstrap_candidate.py unpack --root "$PWD" '
+                '--archive "$PWD/target/seen-build/candidate-transfer/bootstrap-candidate.tar.gz" '
+                '--output "$PWD/target/seen-build/bootstrap-candidate"'},
+    ]
+
+
+def hosted_job(name: str, minutes: int, steps: list[dict], **fields: object) -> dict:
+    return {"name": name, "runs-on": "ubuntu-24.04", "timeout-minutes": minutes,
+            "env": {"GOTOOLCHAIN": "local", "SEEN_RELEASE_CPU_BASELINE": "x86-64"},
+            **fields, "steps": steps}
+
+
+def ci_policy() -> dict:
+    bootstrap = hosted_job("bootstrap", 120, provision_steps() + [
+        {"run": "scripts/run_ci_required.sh --phase bootstrap"},
+        {"timeout-minutes": 1, "run": "tar -czf target/seen-build/bootstrap-candidate.tar.gz "
+                "-C target/seen-build/bootstrap-candidate seen seen-pkg candidate.json"},
+        {**artifact_upload(f"seen-bootstrap-candidate-{SOURCE_SHA}",
+                           "target/seen-build/bootstrap-candidate.tar.gz", compression=0),
+         "timeout-minutes": 1},
+    ] + diagnostics("bootstrap"))
+    acceptance_provision = provision_steps()
+    acceptance_provision[-1]["env"] = {
+        "SEEN_PREPARE_FINITE_TSAN_SDK":
+            "${{ (matrix.group == 'core' || matrix.group == 'async') && '1' || '0' }}",
+    }
+    acceptance = hosted_job("acceptance (${{ matrix.group }})", 195,
+        acceptance_provision + candidate_steps() + [
+            {"run": f"scripts/run_ci_required.sh --phase acceptance --group {MATRIX_GROUP}"},
+            {**artifact_upload(f"seen-acceptance-receipt-{MATRIX_GROUP}-{SOURCE_SHA}",
+                               f"target/seen-build/acceptance-receipts/{MATRIX_GROUP}.json"),
+             "timeout-minutes": 1},
+        ] + diagnostics(f"acceptance-{MATRIX_GROUP}"), needs="bootstrap",
+        strategy={"fail-fast": False, "matrix": {"group": list(ACCEPTANCE_GROUPS)}})
+    native_inputs = hosted_job("native-arm-inputs", 145, provision_steps() + [
+        {"run": "sudo -n apt-get install --yes --no-install-recommends "
+                "gcc-aarch64-linux-gnu g++-aarch64-linux-gnu"},
+    ] + candidate_steps() + [
+        {"run": "scripts/run_ci_required.sh --phase native-arm-inputs"},
+        {**artifact_upload(f"seen-linux-arm64-inputs-{SOURCE_SHA}",
+                           "target/seen-build/linux-arm64-inputs.tar.gz", compression=0),
+         "timeout-minutes": 1},
+    ] + diagnostics("native-arm-inputs"), needs="bootstrap", env={
+        "GOTOOLCHAIN": "local", "SEEN_RELEASE_CPU_BASELINE": "x86-64",
+        "SEEN_LINUX_ARM64_SYSROOT": "/",
+        "SEEN_LINUX_ARM64_GCC_TOOLCHAIN": "/usr",
+    })
+    native_provision = provision_steps()
+    native_provision[-1]["run"] = "scripts/provision_ci_linux_arm64_host.sh"
+    native_archive = {"uses": DOWNLOAD_ARTIFACT, "with": {
+        "name": f"seen-linux-arm64-inputs-{SOURCE_SHA}",
+        "path": "target/seen-build/linux-arm64-transfer/",
+    }}
+    native = hosted_job("native-arm", 50, native_provision + candidate_steps() + [
+        native_archive,
+        {"run": "scripts/run_ci_required.sh --phase native-arm"},
+        {**artifact_upload(f"seen-linux-arm64-qualification-{SOURCE_SHA}",
+                           "target/seen-build/linux-arm64-qualification/"),
+         "timeout-minutes": 1},
+    ] + diagnostics("native-arm"), needs=["bootstrap", "native-arm-inputs"],
+        **{"runs-on": "ubuntu-24.04-arm", "env": {"GOTOOLCHAIN": "local"}})
+    windows_inputs = hosted_job("native-windows-inputs", 50, provision_steps() + [
+        {"run": "sudo -n apt-get install --yes --no-install-recommends gcc-mingw-w64-x86-64"},
+    ] + candidate_steps() + [
+        {"run": "scripts/run_ci_required.sh --phase native-windows-inputs"},
+        {**artifact_upload(f"seen-windows-iocp-inputs-{SOURCE_SHA}",
+                           "target/seen-build/windows-iocp-inputs.tar.gz", compression=0),
+         "timeout-minutes": 1},
+    ] + diagnostics("native-windows-inputs"), needs="bootstrap")
+    windows_archive = {"uses": DOWNLOAD_ARTIFACT, "with": {
+        "name": f"seen-windows-iocp-inputs-{SOURCE_SHA}",
+        "path": "target/seen-build/windows-iocp-transfer/",
+    }}
+    # Native Windows execution is bounded by a kernel job object inside the script.
+    windows = {"name": "native-windows", "runs-on": "windows-2025", "timeout-minutes": 30,
+               "needs": "native-windows-inputs", "defaults": {"run": {"shell": "pwsh"}}, "steps": [
+        {"uses": CHECKOUT, "with": {"ref": SOURCE_SHA}},
+        windows_archive,
+        {"timeout-minutes": 20,
+         "run": "./scripts/verify_windows_iocp.ps1 "
+                "-Archive target/seen-build/windows-iocp-transfer/windows-iocp-inputs.tar.gz "
+                "-Report target/seen-build/windows-iocp-qualification/report.json"},
+        {**artifact_upload(f"seen-windows-iocp-qualification-{SOURCE_SHA}",
+                           "target/seen-build/windows-iocp-qualification/"),
+         "timeout-minutes": 1},
+    ]}
+    required_provision = provision_steps()
+    # Diagnostics still need exact source when an upstream dependency fails.
+    required_provision[1]["if"] = DIAGNOSTIC_IF
+    required = hosted_job("required", 30, required_provision[:2] + [
+        {"env": {"BOOTSTRAP_RESULT": "${{ needs.bootstrap.result }}",
+                 "ACCEPTANCE_RESULT": "${{ needs.acceptance.result }}",
+                 "NATIVE_INPUTS_RESULT": "${{ needs.native-arm-inputs.result }}",
+                 "NATIVE_RESULT": "${{ needs.native-arm.result }}",
+                 "WINDOWS_INPUTS_RESULT": "${{ needs.native-windows-inputs.result }}",
+                 "WINDOWS_RESULT": "${{ needs.native-windows.result }}"},
+         "run": '[[ "$BOOTSTRAP_RESULT" == success && "$ACCEPTANCE_RESULT" == success '
+                '&& "$NATIVE_INPUTS_RESULT" == success && "$NATIVE_RESULT" == success '
+                '&& "$WINDOWS_INPUTS_RESULT" == success && "$WINDOWS_RESULT" == success ]]'},
+    ] + required_provision[2:] + candidate_steps() + [
+        {"uses": DOWNLOAD_ARTIFACT, "with": {
+            "pattern": f"seen-acceptance-receipt-*-{SOURCE_SHA}",
+            "path": "target/seen-build/acceptance-receipts/", "merge-multiple": True,
+        }},
+        native_archive,
+        {"uses": DOWNLOAD_ARTIFACT, "with": {
+            "name": f"seen-linux-arm64-qualification-{SOURCE_SHA}",
+            "path": "target/seen-build/linux-arm64-qualification/",
+        }},
+        windows_archive,
+        {"uses": DOWNLOAD_ARTIFACT, "with": {
+            "name": f"seen-windows-iocp-qualification-{SOURCE_SHA}",
+            "path": "target/seen-build/windows-iocp-qualification/",
+        }},
+        {"run": "scripts/run_ci_required.sh --phase finalize"},
+        {**artifact_upload(f"seen-release-toolchain-{SOURCE_SHA}",
+                           "target/seen-build/release-toolchain.tar.gz", compression=0),
+         "timeout-minutes": 1},
+    ] + diagnostics("required"), needs=["bootstrap", "acceptance", "native-arm-inputs", "native-arm",
+                                        "native-windows-inputs", "native-windows"],
+        **{"if": "${{ always() }}"})
+    return {
+        "name": "CI",
+        "on": {"push": {"branches": ["main", "release/0.23.0"]}, "workflow_dispatch": None},
+        "permissions": {"contents": "read"},
+        "concurrency": {
+            "group": "ci-${{ github.workflow }}-${{ github.ref }}",
+            "cancel-in-progress": "${{ github.ref == 'refs/heads/main' || "
+                                   "contains(github.event.head_commit.message, '[replace-ci]') }}",
+        },
+        "jobs": {"bootstrap": bootstrap, "acceptance": acceptance,
+                 "native-arm-inputs": native_inputs, "native-arm": native,
+                 "native-windows-inputs": windows_inputs, "native-windows": windows,
+                 "required": required},
+    }
+
+
+EXPECTED_WORKFLOW = ci_policy()
 EXPECTED_RELEASE_WORKFLOW = """name: Release
 
 on:
@@ -260,13 +395,129 @@ def safe_github_files(
     return files
 
 
-def mismatch_line(actual: bytes, expected: bytes) -> int:
-    actual_lines = actual.splitlines()
-    expected_lines = expected.splitlines()
-    for number, (left, right) in enumerate(zip(actual_lines, expected_lines), 1):
-        if left != right:
-            return number
-    return min(len(actual_lines), len(expected_lines)) + 1
+def parse_workflow(raw: bytes) -> dict[str, object]:
+    """Read the reviewed YAML subset, rejecting aliases, tags and duplicate keys.
+
+    Keeping this small subset avoids an ambient YAML dependency in clean CI.
+    Maps, sequences, quoted/plain scalars and literal blocks are supported;
+    unsupported YAML syntax fails closed rather than being reinterpreted.
+    """
+    text = raw.decode("utf-8")
+    if "\t" in text or text.startswith("\ufeff"):
+        fail("invalid", "workflow contains tabs or a BOM")
+    rows = text.splitlines()
+
+    def scalar(value: str) -> object:
+        if value.startswith('"'):
+            try:
+                return json.loads(value)
+            except json.JSONDecodeError:
+                fail("invalid", "invalid double-quoted YAML scalar")
+        if value.startswith("'"):
+            if not value.endswith("'"):
+                fail("invalid", "unterminated quoted YAML scalar")
+            return value[1:-1].replace("''", "'")
+        if value.startswith("[") and value.endswith("]"):
+            return [scalar(item.strip()) for item in value[1:-1].split(",") if item.strip()]
+        if value == "true":
+            return True
+        if value == "false":
+            return False
+        if value.isdigit():
+            return int(value)
+        if value.startswith(("&", "*", "!", "{", ">", "|", "[")) or " #" in value:
+            fail("invalid", "unsupported YAML scalar syntax")
+        return value
+
+    def skip(index: int) -> int:
+        while index < len(rows) and (not rows[index].strip() or rows[index].lstrip().startswith("#")):
+            index += 1
+        return index
+
+    def indentation(index: int) -> int:
+        return len(rows[index]) - len(rows[index].lstrip(" "))
+
+    def entry(mapping: dict, content: str, index: int, depth: int) -> int:
+        key, separator, value = content.partition(":")
+        if not separator or not key or any(char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-" for char in key):
+            fail("invalid", "unsupported YAML mapping key")
+        if key in mapping:
+            fail("invalid", f"duplicate YAML mapping key: {key}")
+        value = value.strip()
+        if value == "|":
+            start = index
+            end = index
+            while end < len(rows) and (not rows[end].strip() or indentation(end) > depth):
+                end += 1
+            nonempty = [indentation(number) for number in range(start, end) if rows[number].strip()]
+            margin = min(nonempty) if nonempty else depth + 2
+            mapping[key] = "\n".join(row[margin:] if row.strip() else "" for row in rows[start:end]).rstrip("\n") + "\n"
+            return end
+        if value:
+            mapping[key] = scalar(value)
+            return index
+        next_index = skip(index)
+        if next_index < len(rows) and indentation(next_index) > depth:
+            mapping[key], index = block(next_index, indentation(next_index))
+        else:
+            mapping[key] = None
+        return index
+
+    def block(index: int, depth: int) -> tuple[object, int]:
+        sequence = rows[index][depth:].startswith("- ")
+        result = [] if sequence else {}
+        while True:
+            index = skip(index)
+            if index >= len(rows) or indentation(index) < depth:
+                return result, index
+            if indentation(index) != depth:
+                fail("invalid", "inconsistent YAML indentation")
+            content = rows[index][depth:]
+            index += 1
+            if sequence:
+                if not content.startswith("- "):
+                    fail("invalid", "mixed YAML collection types")
+                item = content[2:]
+                if ": " in item or item.endswith(":"):
+                    mapping = {}
+                    index = entry(mapping, item, index, depth + 2)
+                    while True:
+                        index = skip(index)
+                        if index >= len(rows) or indentation(index) <= depth:
+                            break
+                        if indentation(index) != depth + 2:
+                            fail("invalid", "inconsistent sequence mapping indentation")
+                        index = entry(mapping, rows[index][depth + 2:], index + 1, depth + 2)
+                    result.append(mapping)
+                else:
+                    result.append(scalar(item))
+            else:
+                index = entry(result, content, index, depth)
+
+    start = skip(0)
+    if start == len(rows):
+        fail("invalid", "workflow is empty")
+    document, end = block(start, 0)
+    if skip(end) != len(rows) or not isinstance(document, dict):
+        fail("invalid", "workflow must be one mapping document")
+    return document
+
+
+def policy_semantics(document: object, *, steps: bool = False) -> object:
+    """Display labels are not authorization; all executable fields remain exact."""
+    if isinstance(document, list):
+        return [policy_semantics(item, steps=steps) for item in document]
+    if isinstance(document, dict):
+        return {key: policy_semantics(value, steps=(key == "steps"))
+                for key, value in document.items() if not (steps and key == "name")}
+    return document
+
+
+def same_policy(actual: object, expected: object) -> bool:
+    # JSON preserves scalar types: YAML false must not compare equal to integer 0.
+    return json.dumps(policy_semantics(actual), sort_keys=True) == json.dumps(
+        policy_semantics(expected), sort_keys=True
+    )
 
 
 def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> dict[str, object]:
@@ -281,20 +532,10 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
             "invalid",
             f"active workflow set must be exactly {WORKFLOW} and {RELEASE_WORKFLOW}",
         )
-    actual = files[WORKFLOW]
-    if actual != EXPECTED_WORKFLOW:
-        fail(
-            "invalid",
-            f"{WORKFLOW} differs from the canonical contract at line "
-            f"{mismatch_line(actual, EXPECTED_WORKFLOW)}",
-        )
-    release_actual = files[RELEASE_WORKFLOW]
-    if release_actual != EXPECTED_RELEASE_WORKFLOW:
-        fail(
-            "invalid",
-            f"{RELEASE_WORKFLOW} differs from the canonical contract at line "
-            f"{mismatch_line(release_actual, EXPECTED_RELEASE_WORKFLOW)}",
-        )
+    if not same_policy(parse_workflow(files[WORKFLOW]), EXPECTED_WORKFLOW):
+        fail("invalid", "CI graph, containment, candidate transfer or final certification policy differs")
+    if not same_policy(parse_workflow(files[RELEASE_WORKFLOW]), parse_workflow(EXPECTED_RELEASE_WORKFLOW)):
+        fail("invalid", "release authorization, exact-source, signing or native Windows policy differs")
     return {
         "active_workflows": workflows,
         "checkout": "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683",
@@ -303,20 +544,45 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         "host_tools": [
             "bubblewrap",
             "clang-20",
+            "gcc-aarch64-linux-gnu",
+            "g++-aarch64-linux-gnu",
+            "gcc-mingw-w64-x86-64",
+            "libc6-dev-arm64-cross",
             "libclang-rt-20-dev",
             "libvulkan-dev",
+            "mesa-vulkan-drivers",
             "lld-20",
             "llvm-20",
+            "nvidia-cuda-nvcc-cu12==12.8.93 (pinned ptxas only)",
             "ripgrep",
+            "spirv-tools",
+            "strace",
         ],
-        "host_tools_provisioning": "ubuntu-packages-scoped-apparmor",
+        "finite_tsan_host_tools_when_requested": [
+            "llvm-20-dev (same pinned LLVM package version)",
+            "cmake",
+            "ninja-build",
+            "gnupg",
+            "patch",
+        ],
+        "host_tools_provisioning": "ubuntu-packages-pinned-assembler-scoped-apparmor",
         "setup_go": "actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e",
-        "job_count": 1,
+        "job_count": 6 + len(ACCEPTANCE_GROUPS),
+        "job_graph": {"bootstrap": [], "acceptance": ["bootstrap"],
+                      "native-arm-inputs": ["bootstrap"],
+                      "native-arm": ["bootstrap", "native-arm-inputs"],
+                      "native-windows-inputs": ["bootstrap"],
+                      "native-windows": ["native-windows-inputs"],
+                      "required": ["bootstrap", "acceptance", "native-arm-inputs", "native-arm",
+                                   "native-windows-inputs", "native-windows"]},
+        "acceptance_groups": list(ACCEPTANCE_GROUPS),
+        "candidate": "same-run-source-bound-unverified-stage3",
+        "release_artifact_producer": "required-only-after-all-five-receipts-and-native-arm-proof",
         "platforms": {
-            "linux-arm64": "static-policy",
+            "linux-arm64": "required-native-qualification",
             "linux-x86_64": "required",
             "macos-arm64": "release-required-input",
-            "windows-x86_64": "release-required-input",
+            "windows-x86_64": "required-native-iocp-qualification",
         },
         "required_check": "CI / required",
         "release_cosign": "v3.1.3",
@@ -328,10 +594,18 @@ def validate(root: Path, max_files: int, max_bytes: int, cancel_after: int) -> d
         "release_toolchain_artifact": "exact-authorized-source-run",
         "release_workflow": RELEASE_WORKFLOW,
         "runner": "ubuntu-24.04",
-        "timeout_minutes": 210,
-        "trigger": "push-main-or-release-0.22.11-or-explicit-manual",
+        "native_arm_runner": "ubuntu-24.04-arm",
+        "native_windows_runner": "windows-2025-job-object-capped",
+        "timeout_minutes": {"bootstrap": 120, "acceptance": 195,
+                            "native-arm-inputs": 145, "native-arm": 50,
+                            "native-windows-inputs": 50, "native-windows": 30, "required": 30},
+        "critical_path_seconds": 20700,
+        "hosted_workload_budget": "phase-limit-minus-monotonic-setup-minus-600s-reserve-minus-1s-rounding",
+        "diagnostic_step_timeout_seconds": 60,
+        "trigger": "push-main-or-release-0.23.0-or-explicit-manual",
         "upload_artifact": "actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a",
-        "version": 11,
+        "version": 15,
+        "download_artifact": "actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093",
     }
 
 

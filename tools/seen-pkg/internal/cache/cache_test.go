@@ -93,7 +93,7 @@ func TestInstallLookupAndProjectViewIsolation(t *testing.T) {
 	}
 	project := t.TempDir()
 	t.Cleanup(func() { makeWritable(filepath.Join(project, ".seen")) })
-	view, err := c.CreateProjectView(context.Background(), key, project)
+	view, err := c.CreateProjectView(context.Background(), key, project, "https://registry.example/packages")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,13 +121,65 @@ func TestInstallLookupAndProjectViewIsolation(t *testing.T) {
 		t.Fatal("view and cache share a mutable inode")
 	}
 	// Re-materialization quarantines and replaces the damaged view.
-	view, err = c.CreateProjectView(context.Background(), key, project)
+	view, err = c.CreateProjectView(context.Background(), key, project, "https://registry.example/packages")
 	if err != nil {
 		t.Fatal(err)
 	}
 	got, err := os.ReadFile(filepath.Join(view, "src", "main.seen"))
 	if err != nil || !bytes.Equal(got, cacheBytes) {
 		t.Fatalf("repaired view mismatch: %q, %v", got, err)
+	}
+}
+
+func TestProjectViewsPreserveOriginForIdenticalArchives(t *testing.T) {
+	archivePath, digest := packageArchive(t)
+	c, err := New(filepath.Join(t.TempDir(), "cache"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { makeWritable(c.Root) })
+	key := testKey(digest)
+	if _, err := c.Install(context.Background(), key, archivePath, packageOptions(digest)); err != nil {
+		t.Fatal(err)
+	}
+	firstRoot, secondRoot := t.TempDir(), t.TempDir()
+	t.Cleanup(func() { makeWritable(filepath.Join(firstRoot, ".seen")) })
+	t.Cleanup(func() { makeWritable(filepath.Join(secondRoot, ".seen")) })
+	firstOrigin := "https://registry.example/packages"
+	secondOrigin := "https://alternate.example/packages"
+	first, err := c.CreateProjectView(context.Background(), key, firstRoot, firstOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := c.CreateProjectView(context.Background(), key, firstRoot, secondOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second {
+		t.Fatal("distinct hosted origins shared one project source view")
+	}
+	relocated, err := c.CreateProjectView(context.Background(), key, secondRoot, firstOrigin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstRelative, err := filepath.Rel(firstRoot, first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	relocatedRelative, err := filepath.Rel(secondRoot, relocated)
+	if err != nil || relocatedRelative != firstRelative {
+		t.Fatalf("view identity changed after relocation: %q != %q, %v", relocatedRelative, firstRelative, err)
+	}
+	firstBytes, err := os.ReadFile(filepath.Join(first, "src", "main.seen"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondBytes, err := os.ReadFile(filepath.Join(second, "src", "main.seen"))
+	if err != nil || !bytes.Equal(firstBytes, secondBytes) {
+		t.Fatalf("identical archives produced different source bytes: %v", err)
+	}
+	if _, err := ProjectViewPath(firstRoot, key, "https://registry.example/packages/../escape"); err == nil {
+		t.Fatal("noncanonical registry origin reached project-view path construction")
 	}
 }
 
@@ -400,7 +452,7 @@ func TestProjectViewRejectsSymlinkedSeenDirectory(t *testing.T) {
 	if err := os.Symlink(outside, filepath.Join(project, ".seen")); err != nil {
 		t.Skipf("symlink unavailable: %v", err)
 	}
-	_, err = c.CreateProjectView(context.Background(), key, project)
+	_, err = c.CreateProjectView(context.Background(), key, project, "https://registry.example/packages")
 	if got := cacheCode(t, err); got != "cache_view_root_invalid" {
 		t.Fatalf("code = %q: %v", got, err)
 	}

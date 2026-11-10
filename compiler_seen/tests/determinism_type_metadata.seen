@@ -1,0 +1,102 @@
+import typechecker.determinism.{DeterminismEffectGraph, determinismGraphMaxEdges}
+
+fun checkAliasReceiverProvenance() r: Void {
+    let graph = DeterminismEffectGraph.new()
+    let modules = ["types", "types", "app", "app", "types", "types", "types"]
+    let names = ["Text", "Alias", "String", "Shadow", "CycleA", "CycleB", "Missing"]
+    let canonical = ["types::Text", "types::Alias", "app::String",
+        "app::Shadow", "types::CycleA", "types::CycleB", "types::Missing"]
+    let kinds = ["TypeAlias", "TypeAlias", "Class", "TypeAlias",
+        "TypeAlias", "TypeAlias", "TypeAlias"]
+    let targets = ["String", "types::Text", "app::String", "app::String",
+        "types::CycleB", "types::CycleA", ""]
+    let empty = Array<String>()
+    graph.setResolvedRegistry(modules, names, canonical, kinds, targets,
+        empty, empty, empty, empty, empty, empty)
+    // The target's defining scope wins over the consumer's class named String.
+    if graph.builtinMethodReturnType("app", "types::Alias", "startsWith") != "Bool" {
+        abort("verified String alias lost its pure builtin receiver")
+    }
+    if graph.builtinMethodReturnType("types", "String", "split") != "Array<String>" or
+        graph.builtinMethodReturnType("app", "types::Alias", "split") != "Array<String>" {
+        abort("verified String split lost its Array<String> result identity")
+    }
+    if graph.builtinMethodReturnType("app", "app::Shadow", "split") != "" or
+        graph.builtinMethodReturnType("app", "String", "split") != "" or
+        graph.builtinMethodReturnType("types", "Int", "split") != "" or
+        graph.builtinMethodReturnType("types", "UnknownReceiver", "split") != "" {
+        abort("non-builtin String receiver acquired split intrinsic purity")
+    }
+    if graph.builtinMethodReturnType("app", "app::Shadow", "startsWith") != "" or
+        graph.builtinMethodReturnType("app", "String", "startsWith") != "" {
+        abort("user class spelling or alias acquired String intrinsic purity")
+    }
+    if graph.builtinMethodReturnType("app", "types::CycleA", "endsWith") != "" or
+        graph.builtinMethodReturnType("app", "types::Missing", "endsWith") != "" {
+        abort("cyclic or missing alias target acquired builtin purity")
+    }
+    if graph.builtinMethodReturnType("app", "types::Text", "getenv") != "" {
+        abort("String alias admitted an unrelated method spelling")
+    }
+}
+
+fun checkBuiltinArrayReadProvenance() r: Void {
+    let graph = DeterminismEffectGraph.new()
+    let modules = ["shadow", "shadow"]
+    let names = ["Array", "Alias"]
+    let canonical = ["shadow::Array", "shadow::Alias"]
+    let kinds = ["Class", "TypeAlias"]
+    let targets = ["", "shadow::Array"]
+    let empty = Array<String>()
+    graph.setResolvedRegistry(modules, names, canonical, kinds, targets,
+        empty, empty, empty, empty, empty, empty)
+    if graph.builtinMethodReturnType("plain", "Array<String>", "get") != "String" or
+        graph.builtinMethodReturnType("plain", "Array<Int>", "get") != "Int" or
+        graph.builtinMethodReturnType("plain", "Array<T>", "get") != "T" {
+        abort("builtin Array.get lost its concrete or open element identity")
+    }
+    if graph.builtinMethodReturnType("shadow", "Array<String>", "get") != "" or
+        graph.builtinMethodReturnType("shadow", "shadow::Alias", "get") != "" {
+        abort("user Array class or alias acquired collection-read intrinsic purity")
+    }
+    if graph.builtinMethodReturnType("plain", "Array", "get") != "" or
+        graph.builtinMethodReturnType("plain", "Array<String>", "readSecret") != "" {
+        abort("unresolved collection element or unrelated method acquired purity")
+    }
+}
+
+fun main() r: Int {
+    let graph = DeterminismEffectGraph.new()
+    let modules = ["seen_std.src.collections.vec"]
+    let names = ["Vec"]
+    let canonical = ["seen_std.src.collections.vec::Vec"]
+    let kinds = ["Class"]
+    let empty = Array<String>()
+    graph.setResolvedRegistry(modules, names, canonical, kinds, empty,
+        empty, empty, empty, empty, empty, empty)
+    let owners = Array<String>()
+    var index = 0
+    while index <= determinismGraphMaxEdges() {
+        owners.push("owner")
+        index = index + 1
+    }
+    if graph.setResolvedTypeMetadata(owners, empty, empty, empty,
+        empty, empty, empty, "/trusted/stdlib") {
+        abort("oversized type metadata was admitted")
+    }
+    if not graph.result.hasErrors() or graph.result.errors[0].getCode() != "core.004d.limit" {
+        abort("metadata limit lost its typed diagnostic")
+    }
+    // A caller inspecting the rejected graph must not index missing provenance.
+    if graph.builtinMethodReturnType("consumer", canonical[0] + "<Int>", "length") != "" {
+        abort("rejected metadata granted a trusted intrinsic")
+    }
+    if not graph.validate().hasErrors() {
+        abort("graph validation lost metadata rejection")
+    }
+    owners.free()
+    checkAliasReceiverProvenance()
+    checkBuiltinArrayReadProvenance()
+    println("PASS: deterministic type metadata rejects limits without losing provenance safety")
+    return 0
+}

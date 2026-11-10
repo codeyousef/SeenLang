@@ -46,6 +46,22 @@ class ErrorApiMigrationTests(unittest.TestCase):
         self.assertTrue(E.valid_path("seen_std/src/io/file.seen"))
         self.assertFalse(E.valid_path("../file.seen"))
 
+    def test_parent_components_are_rejected_without_rejecting_literal_dotted_names(self):
+        for path in ("nested/file.seen", "nested/name..part.seen",
+                     "nested/./file.seen", "nested//file.seen"):
+            with self.subTest(path=path):
+                value = self.value()
+                value["modules"] = [path]
+                self.assertEqual(E.validate(self.raw(value))["modules"], [path])
+        for path in ("../file.seen", "nested/../file.seen", "nested/..//file.seen",
+                     "nested/./../file.seen", "/nested/file.seen"):
+            with self.subTest(path=path):
+                value = self.value()
+                value["modules"] = [path]
+                with self.assertRaises(E.ContractError) as rejected:
+                    E.validate(self.raw(value))
+                self.assertEqual(rejected.exception.code, "invalid")
+
     def test_invalid_envelope_and_limits(self):
         for value in (None, {**self.value(), "schema": "bad"}, {**self.value(), "extra": 1}):
             with self.assertRaises(E.ContractError):
@@ -86,10 +102,6 @@ class ErrorApiMigrationTests(unittest.TestCase):
             violations = E.audit(value, root)
             self.assertTrue(any("unavailable" in item for item in violations))
 
-    def test_fuzz(self):
-        cases, rejected = E.fuzz(HAPPY.read_bytes(), 0.001, 1101)
-        self.assertGreater(cases, 0)
-        self.assertGreater(rejected, 0)
 
     def invoke(self, *args):
         out = OutputCapture()

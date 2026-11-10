@@ -1,0 +1,57 @@
+/// Bounded PTX text assembly. Raw owned-text primitives are shared with the
+/// JSON builder; borrowed IR names outlive this writer, and owned fragments
+/// are released on both finish and rejection. No instruction owns native code.
+import codegen.gpu.text_buffer.{GpuTextBuffer}
+import codegen.gpu_ir_model.{GpuIrValidation}
+class GpuPtxText {
+    var writer: GpuTextBuffer
+    var validation: GpuIrValidation
+    static fun create(validation: GpuIrValidation) r: GpuPtxText {
+        return GpuPtxText{writer: GpuTextBuffer.create(validation, "E_GPU_PTX_LIMIT"), validation: validation}
+    }
+    fun reserve(bytes: Int, parts: Int) r: Bool {
+        return this.writer.reserve(bytes, parts)
+    }
+    fun literal(text: String) r: Void {
+        this.writer.literal(text)
+    }
+    fun owned(text: String) r: Void {
+        this.writer.owned(text)
+    }
+    fun number(value: Int) r: Void {
+        this.writer.number(value)
+    }
+    fun hexWord(value: Int) r: Void {
+        this.writer.hex32(value)
+    }
+    fun reg(kind: String, identity: Int) r: Void { this.literal("%"); this.literal(kind); this.number(identity) }
+    fun label(identity: Int) r: Void { this.literal("$seen_L"); this.number(identity) }
+    fun defineLabel(identity: Int) r: Void { this.label(identity); this.literal(":\n") }
+    fun branch(identity: Int) r: Void { this.literal("bra "); this.label(identity); this.literal(";\n") }
+    fun conditional(predicate: Int, identity: Int) r: Void {
+        this.literal("@"); this.reg("p", predicate); this.literal(" bra "); this.label(identity); this.literal(";\n")
+    }
+    fun unary(opcode: String, destination: Int, source: Int) r: Void {
+        this.literal(opcode); this.literal(" "); this.reg("r", destination); this.literal(", "); this.reg("r", source); this.literal(";\n")
+    }
+    fun binary(opcode: String, destination: Int, left: Int, right: Int) r: Void {
+        this.literal(opcode); this.literal(" "); this.reg("r", destination); this.literal(", "); this.reg("r", left)
+        this.literal(", "); this.reg("r", right); this.literal(";\n")
+    }
+    fun predicate(opcode: String, destination: Int, left: Int, right: Int) r: Void {
+        this.literal(opcode); this.literal(" "); this.reg("p", destination); this.literal(", "); this.reg("r", left)
+        this.literal(", "); this.reg("r", right); this.literal(";\n")
+    }
+    fun logical(opcode: String, destination: Int, left: Int, right: Int) r: Void {
+        this.literal(opcode); this.literal(" "); this.reg("p", destination); this.literal(", "); this.reg("p", left)
+        this.literal(", "); this.reg("p", right); this.literal(";\n")
+    }
+    fun select(destination: Int, yes: Int, no: Int, predicate: Int) r: Void {
+        this.literal("selp.b32 "); this.reg("r", destination); this.literal(", "); this.reg("r", yes)
+        this.literal(", "); this.reg("r", no); this.literal(", "); this.reg("p", predicate); this.literal(";\n")
+    }
+    fun finish() r: String { return this.writer.finish() }
+    fun release() r: Void {
+        this.writer.release(); this.free()
+    }
+}

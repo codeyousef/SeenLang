@@ -5,6 +5,49 @@ Extracted from ir_type_info.seen
 
 import codegen.ir_type_info.{g_methodReturnCacheTypes, findMethodReturnCacheRecordImpl, cacheMethodReturnTypeImpl, findStructIdx}
 import codegen.ir_method_return_type_collections.{getCollectionMethodReturnTypeImpl}
+import codegen.ir_generic_type_specialize.{specializeGenericTypeImpl}
+import codegen.ir_string_collect.{getBaseTypeNameImpl, trimSpacesImpl}
+
+fun getReceiverMethodReturnTypeImpl(receiverType: String, methodName: String,
+    structNames: Array<String>, structMethodNames: Array<String>,
+    structMethodRetTypes: Array<String>) r: String {
+
+    let ownerType = trimSpacesImpl(receiverType)
+    let baseType = getBaseTypeNameImpl(ownerType)
+    // Collection fallback tables need the concrete arguments. Looking up only
+    // HashMap erases Option<V> to Option, which cannot be reified afterwards.
+    // Strip owner qualification without stripping nested argument identities.
+    var declarationOwner = ownerType
+    var lookupOwner = baseType
+    let genericStart = ownerType.indexOf("<")
+    if genericStart >= 0 {
+        declarationOwner = trimSpacesImpl(ownerType.substring(0, genericStart))
+        lookupOwner = baseType + ownerType.substring(genericStart,
+            ownerType.length())
+    }
+    // A registered qualified declaration is authoritative, including a missing
+    // method. Never borrow an unrelated same-named owner's method in that case.
+    let declaredOwnerIndex = findStructIdx(structNames, declarationOwner)
+    var retType = getMethodReturnTypeImpl(ownerType, methodName,
+        structNames, structMethodNames, structMethodRetTypes)
+    if retType == "" and declarationOwner != ownerType {
+        retType = getMethodReturnTypeImpl(declarationOwner, methodName,
+            structNames, structMethodNames, structMethodRetTypes)
+    }
+    if retType == "" and declaredOwnerIndex < 0 and lookupOwner != ownerType {
+        retType = getMethodReturnTypeImpl(lookupOwner, methodName,
+            structNames, structMethodNames, structMethodRetTypes)
+    }
+    if retType == "" and declaredOwnerIndex < 0 and baseType != declarationOwner {
+        retType = getMethodReturnTypeImpl(baseType, methodName,
+            structNames, structMethodNames, structMethodRetTypes)
+    }
+    if retType != "" and baseType != ownerType {
+        retType = specializeGenericTypeImpl(ownerType, baseType, retType)
+    }
+    if retType == "Unknown" { return "" }
+    return retType
+}
 
 fun getMethodReturnTypeImpl(structName: String, methodName: String,
     structNames: Array<String>, structMethodNames: Array<String>,

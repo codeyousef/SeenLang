@@ -1,0 +1,38 @@
+import parser.real_parser.{ProgramNode}
+import codegen.gpu_lower_program.{lowerGpuProgram}
+import codegen.gpu_ir_model.{GpuIrModule}
+import ir_fixture_support.{irRequire}
+import ir_scalar_state.{IrScalarState}
+import ir_scalar_machine.{runIrScalarWitness}
+import json.builder.{JsonBuilder_new, destroyJsonBuilder, releaseJsonText}
+
+fun rejectionExpect(program: ProgramNode, code: String, message: String, line: Int, column: Int, emit: Bool) r: Void {
+    let result = lowerGpuProgram(program, "rejection.seen")
+    if not result.isErr() { abort("GPU rejection fixture unexpectedly lowered successfully; expected " + code) }
+    let validation = result.unwrapErr(); result.releaseContainer()
+    if validation.diagnostics.length() != 1 { abort("GPU rejection fixture expected exactly one diagnostic") }
+    let error = validation.diagnostics[0]
+    if error.code != code { abort("GPU rejection fixture diagnostic code differs from its golden") }
+    if message != "" {
+        if error.message != message { abort("GPU rejection fixture diagnostic message differs from its golden") }
+        if error.line != line or error.column != column { abort("GPU rejection fixture source location differs from its golden") }
+        if error.functionIndex != 0 or error.blockIndex != 0 or error.instructionIndex != -1 {
+            abort("GPU rejection fixture IR location differs from its golden")
+        }
+    }
+    if emit {
+        let json = JsonBuilder_new(); json.startObject(); json.stringProp("schema", "seen-gpu-rejection-golden-v1")
+        json.stringProp("code", error.code); json.stringProp("message", error.message)
+        json.intProp("function", error.functionIndex); json.intProp("block", error.blockIndex); json.intProp("instruction", error.instructionIndex)
+        json.intProp("line", error.line); json.intProp("column", error.column); json.endObject()
+        let text = json.build(); destroyJsonBuilder(json); println(text); releaseJsonText(text)
+    }
+    validation.release()
+}
+fun rejectionObserve(program: ProgramNode, expected: Int) r: Void {
+    let result = lowerGpuProgram(program, "observed.seen"); irRequire(result.isOkay())
+    let module = result.unwrap(); result.releaseContainer(); let state = IrScalarState.create(); let output = [0]
+    irRequire(state.addBuffer(output) == 0); let arguments = [0]
+    irRequire(runIrScalarWitness(module, state, 0, arguments) and output[0] == expected and state.faults == 0)
+    arguments.free(); state.release(); module.release()
+}

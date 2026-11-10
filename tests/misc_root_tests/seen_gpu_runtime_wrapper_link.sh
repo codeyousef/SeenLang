@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-COMPILER="${SEEN_BIN:-$ROOT_DIR/compiler_seen/target/seen}"
+COMPILER="${COMPILER:-${SEEN_BIN:-$ROOT_DIR/compiler_seen/target/seen}}"
 CAPPED_ENTRY="$ROOT_DIR/scripts/run_capped_regression.sh"
 SCOPE=seen-gpu-runtime-wrapper-link
 if [ "${SEEN_CAPPED_REGRESSION_ACTIVE:-0}" != "1" ]; then
@@ -78,5 +78,5 @@ SEEN
         "$TMP_DIR/src/main.seen" "$TMP_DIR/target/repro"
 )
 
-"$TMP_DIR/target/repro" >/dev/null
+timeout --kill-after=5s 120s "$TMP_DIR/target/repro" >/dev/null
 echo "PASS: GPU wrapper imports link seen_gpu runtime"

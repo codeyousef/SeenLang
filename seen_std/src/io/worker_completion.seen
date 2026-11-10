@@ -1,0 +1,18 @@
+/// Shared completion storage outlives a cancelled worker job object.
+import io.completion_types.{IoSubmissionView}
+
+@send
+class WorkerIoOutcome {
+    var token: UInt64
+    var progress: UInt64
+    var status: Int32
+    var nativeCode: Int64
+    var finished: Bool
+}
+// The coordinator owns outcome. A synchronous worker has its only mutable
+// borrow; the coordinator reads it only after terminal publication and join.
+class WorkerIoSubmission {
+    var view: IoSubmissionView
+    var outcome: WorkerIoOutcome
+    fun release() r: Void { this.view.free(); this.free() }
+}

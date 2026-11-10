@@ -1,0 +1,14 @@
+/// Direct vendor ABI, explicitly imported by the Vulkan provider. No weak
+/// runtime stubs, native allocation policy or backend selection are involved.
+import compute.vulkan_abi.{VulkanInstanceCreateInfo, VulkanDeviceCreateInfo}
+
+extern "C" fun vkEnumerateInstanceVersion(version: *UInt32) r: Int32
+extern "C" fun vkCreateInstance(info: *const VulkanInstanceCreateInfo, allocator: *Void, instance: *UInt64) r: Int32
+extern "C" fun vkDestroyInstance(instance: UInt64, allocator: *Void) r: Void
+extern "C" fun vkEnumeratePhysicalDevices(instance: UInt64, count: *UInt32, devices: *UInt64) r: Int32
+extern "C" fun vkGetPhysicalDeviceProperties2(physical: UInt64, properties: *UInt8) r: Void
+extern "C" fun vkGetPhysicalDeviceMemoryProperties(physical: UInt64, properties: *UInt8) r: Void
+extern "C" fun vkGetPhysicalDeviceFeatures(physical: UInt64, features: *UInt8) r: Void
+extern "C" fun vkGetPhysicalDeviceQueueFamilyProperties(physical: UInt64, count: *UInt32, properties: *UInt8) r: Void
+extern "C" fun vkCreateDevice(physical: UInt64, info: *const VulkanDeviceCreateInfo, allocator: *Void, device: *UInt64) r: Int32
+extern "C" fun vkDestroyDevice(device: UInt64, allocator: *Void) r: Void

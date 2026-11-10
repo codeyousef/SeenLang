@@ -10,6 +10,20 @@ fun expect(condition: Bool, message: String) -> Void {
 fun main() -> Int {
     let map = StringHashMap<Int>.new()
     expect(map.isEmpty(), "map should start empty")
+    expect(map.capacity() == 16, "default native map capacity mismatch")
+    expect(map.loadFactorPercent() == 0, "empty map load factor mismatch")
+    let sized = StringHashMap<Int>.withCapacity(64)
+    expect(sized.capacity() == 64, "integer map capacity constructor mismatch")
+    sized.insert("one", 1)
+    expect(sized.loadFactorPercent() == 1, "integer map load factor must truncate")
+    let textMap = StringHashMap<String>.withCapacity(32)
+    expect(textMap.capacity() == 32, "String map capacity constructor mismatch")
+    expect(textMap.loadFactorPercent() == 0, "empty String map load factor mismatch")
+    textMap.insert("first", "value")
+    textMap.insert("second", "other")
+    expect(textMap.len() == 2, "String map length mismatch")
+    expect(textMap.loadFactorPercent() == 6, "String map load factor mismatch")
+    expect(textMap.get("first").unwrapOr("missing") == "value", "String value layout mismatch")
     expect(StringHashMap<Int>.tryWithCapacity(8).isOkay(),
         "tryWithCapacity should return Ok")
     expect(map.tryReserve(32).isOkay(), "tryReserve should report success")
@@ -46,6 +60,11 @@ fun main() -> Int {
         index = index + 1
     }
     expect(map.len() >= 64, "map should grow while inserting many keys")
+    expect(map.capacity() > 16, "native map capacity must reflect growth")
+    expect(map.loadFactorPercent() == (map.len() * 100) / map.capacity(),
+        "grown map metadata must agree with public runtime length")
+    textMap.clear()
+    expect(textMap.loadFactorPercent() == 0, "cleared String map load factor mismatch")
 
     return 0
 }

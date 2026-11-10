@@ -1,0 +1,126 @@
+import compute.vulkan_transfer.{GpuVulkanCopyQueue, gpuVkCopy}
+import compute.vulkan_mapping.{gpuVkMapBuffer, GpuVulkanMappedRegion}
+import compute.buffer.{GpuBuffer}
+import compute.error.{GpuError}
+import compute.memory_kind.{GpuMemoryKind}
+import core.result.{Result}
+import env.env.{args, releaseArgs}
+import vulkan_mapping_fixture_support.{mappingWorld}
+import device_fixture_support.{gpuFixtureRejected}
+import provider_fixture_support.{completed}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+
+fun rejectOpen(result: Result<GpuVulkanCopyQueue, GpuError>, expected: String) r: Void {
+    if result.isOkay() { abort("injected copy construction failure was ignored") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != expected { println(error.code); abort("copy constructor fault code differs") }
+    error.release()
+}
+fun rejectSubmit(result: Result<UInt64, GpuError>, expected: String, progress: UInt64) r: Void {
+    if result.isOkay() { abort("injected copy submission failure was ignored") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != expected or error.progress != progress { println(error.code); abort("copy submission fault code or progress differs") }
+    error.release()
+}
+fun mapped(result: Result<GpuVulkanMappedRegion, GpuError>) r: GpuVulkanMappedRegion {
+    if result.isErr() { abort("copy fault host map unavailable") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun finish(borrow queue: GpuVulkanCopyQueue, expectedLost: Bool) r: Void {
+    var polls = 0
+    while polls < 100000 {
+        let ready = queue.poll(1 as UInt64)
+        if ready.isErr() {
+            let error = ready.unwrapErr(); ready.releaseContainer()
+            if not expectedLost or error.code != "gpu.device_lost" or queue.inFlight != 0 { abort("copy fault completion changed") }
+            error.release(); return
+        }
+        let done = ready.unwrap(); ready.releaseContainer()
+        if done {
+            if expectedLost { abort("lost native copy reported successful output") }
+            return
+        }
+        polls = polls + 1
+    }
+    abort("copy fault poll fuel exhausted")
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics()
+    let arguments = args()
+    if arguments.length() != 3 { abort("copy fault requires mode and diagnostic") }
+    let mode = arguments[1]; let expected = arguments[2]
+    let world = mappingWorld(GpuMemoryKind.HostCoherent); let op = world.operation
+    let a = GpuBuffer<UInt8>.allocate(world.allocator, 32 as UInt64, 1 as UInt64, 256 as UInt64, op)
+    let b = GpuBuffer<UInt8>.allocate(world.allocator, 32 as UInt64, 1 as UInt64, 256 as UInt64, op)
+    if a.isErr() or b.isErr() { abort("copy fault failed before buffer creation") }
+    let source = a.unwrap(); let destination = b.unwrap(); a.releaseContainer(); b.releaseContainer()
+    let writer = mapped(gpuVkMapBuffer(source, 0 as UInt64, 32 as UInt64, true, op))
+    completed(writer.writeByte(3 as UInt64, 213 as UInt8), true); completed(writer.release(), true)
+    let opened = GpuVulkanCopyQueue.open(world.allocator, 2, op)
+    if mode.startsWith("copy-pool") or mode.startsWith("copy-semaphore") or mode.startsWith("copy-command") or mode == "timeline-none" {
+        rejectOpen(opened, expected)
+    } else {
+        if opened.isErr() { abort("copy fault unexpectedly failed in constructor") }
+        let queue = opened.unwrap(); opened.releaseContainer()
+        if mode == "copy-late-timeout" or mode == "copy-post-submit-timeout" {
+            op.monotonicDeadline = seen_time_monotonic_nanos() + (1000000000 as Int64)
+        }
+        let submitted = gpuVkCopy(queue, source, 1 as UInt64, destination, 5 as UInt64, 11 as UInt64, op)
+        if mode == "copy-reset-status" or mode == "copy-begin-status" or mode == "copy-end-status" or mode == "copy-late-timeout" {
+            rejectSubmit(submitted, expected, 0 as UInt64)
+            if queue.inFlight != 0 or queue.lastSubmitted != (0 as UInt64) { abort("record failure retained byte borrows") }
+        } else {
+            let lost = mode == "copy-submit-lost" or mode == "copy-poll-lost"
+            if mode == "copy-submit-oom" {
+                rejectSubmit(submitted, expected, 0 as UInt64)
+                if queue.inFlight != 0 or queue.lastSubmitted != (0 as UInt64) { abort("guaranteed rejected submit consumed a signal") }
+                let retry = gpuVkCopy(queue, source, 1 as UInt64, destination, 5 as UInt64, 11 as UInt64, op)
+                if retry.isErr() or retry.unwrap() != (1 as UInt64) { abort("OOM submit could not retry its command and signal") }
+                retry.releaseContainer()
+            } else if mode == "copy-submit-lost" or mode == "copy-submit-unknown" {
+                rejectSubmit(submitted, expected, 1 as UInt64)
+                if queue.inFlight != 1 or not queue.poisoned { abort("uncertain submission discarded its owner") }
+            } else {
+                if submitted.isErr() or submitted.unwrap() != (1 as UInt64) { abort("copy fault failed before completion observation") }
+                submitted.releaseContainer()
+                if mode == "copy-post-submit-timeout" and seen_time_monotonic_nanos() <= op.monotonicDeadline {
+                    abort("post-submit deadline test did not advance its injected clock")
+                }
+            }
+            gpuFixtureRejected(source.close(), "gpu.busy"); gpuFixtureRejected(destination.close(), "gpu.busy")
+            gpuFixtureRejected(queue.close(), "gpu.busy")
+            if mode == "copy-poll-oom" {
+                gpuFixtureRejected(queue.poll(1 as UInt64), expected)
+                if queue.inFlight != 1 { abort("failed poll discarded submitted byte leases") }
+            }
+            if mode == "copy-poll-timeout" {
+                completed(queue.poll(1 as UInt64), false)
+                if queue.inFlight != 1 { abort("pending native poll released byte leases") }
+            }
+            finish(queue, lost)
+            if queue.inFlight != 0 { abort("native completion failed to retire byte leases") }
+            if mode == "copy-submit-unknown" {
+                rejectSubmit(gpuVkCopy(queue, source, 0 as UInt64, destination, 0 as UInt64, 1 as UInt64, op), "gpu.unavailable", 0 as UInt64)
+            }
+            if lost {
+                rejectSubmit(gpuVkCopy(queue, source, 0 as UInt64, destination, 0 as UInt64, 1 as UInt64, op), "gpu.device_lost", 0 as UInt64)
+            } else {
+                // Readback is a new operation, not reuse of the deliberately
+                // expired submission context. Completion itself ignored expiry.
+                op.monotonicDeadline = 9223372036854775807 as Int64
+                let reader = mapped(gpuVkMapBuffer(destination, 7 as UInt64, 1 as UInt64, false, op))
+                let byte = reader.readByte(0 as UInt64)
+                if byte.isErr() or byte.unwrap() != (213 as UInt8) { abort("copy retry or completed transfer changed its bytes") }
+                byte.releaseContainer(); completed(reader.release(), true)
+            }
+        }
+        completed(queue.close(), true); completed(queue.release(), true)
+    }
+    completed(source.release(), true); completed(destination.release(), true)
+    world.release(); releaseArgs(arguments)
+    if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics { abort("native copy fault retained Seen ownership") }
+    println("PASS: GPU-006C native copy faults preserve partial construction signals completion and cold cleanup")
+    return 0
+}

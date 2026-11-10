@@ -1,0 +1,119 @@
+import inference.quantized_formats.{QuantizedFormat, quantizedBlockElements, quantizedHalf}
+import simd.quantized_decode.{decodeQuantizedBlock}
+import simd.memory_operations.{SimdMemoryProgress}
+import memory.aligned_buffer.{OwnedBuffer}
+import core.operation_context.{OperationContext}
+import dot_fixture_support.{must, errorIs, context}
+import quantized_fixture_support.{prepareQuantizedCorpus, corpusExpected, corpusFormat, corpusHalf, corpusE2M1}
+extern "C" fun seen_memory_used_bytes() r: Int64
+fun corpusRequire(value: Bool) r: Void { if not value { abort("quantized corpus mismatch") } }
+fun checkCorpusPrefix(borrow source: OwnedBuffer<UInt8>, borrow output: OwnedBuffer<UInt8>,
+    format: QuantizedFormat, offset: Int, count: Int, vector: Int, fp8: Int,
+    ctx: OperationContext, borrow progress: SimdMemoryProgress) r: Void {
+    let outputOffset = 63 - offset
+    let first = outputOffset + count * 4
+    var i = 0
+    while i < 16 { output.data[first + i] = 165 as UInt8; i = i + 1 }
+    if outputOffset > 0 { output.data[outputOffset - 1] = 165 as UInt8 }
+    let before = seen_memory_used_bytes()
+    must(decodeQuantizedBlock(source, offset as UInt64, output, outputOffset as UInt64,
+        format, count, vector, ctx, progress))
+    corpusRequire(seen_memory_used_bytes() == before)
+    corpusRequire(progress.completed == (count as UInt64))
+    let values = ((output.data as UInt64) + (outputOffset as UInt64)) as *Float32
+    i = 0
+    while i < count { corpusRequire(values[i] == corpusExpected(format, i, fp8)); i = i + 1 }
+    i = 0
+    while i < 16 { corpusRequire(output.data[first + i] == (165 as UInt8)); i = i + 1 }
+    if outputOffset > 0 { corpusRequire(output.data[outputOffset - 1] == (165 as UInt8)) }
+}
+fun main() r: Int {
+    let source: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(4096 as UInt64, 1 as UInt64, 64 as UInt64))
+    let output: OwnedBuffer<UInt8> = must(OwnedBuffer<UInt8>.allocate(4096 as UInt64, 1 as UInt64, 64 as UInt64))
+    let ctx = context(); let progress = SimdMemoryProgress.create()
+    var half = 0
+    while half < 65536 {
+        if (half / 1024) % 32 != 31 { corpusRequire(quantizedHalf(half) == corpusHalf(half)) }
+        half = half + 1
+    }
+    var kind = 0
+    while kind < 7 {
+        let format = corpusFormat(kind); var offset = 0
+        while offset < 64 {
+            let data = ((source.data as UInt64) + (offset as UInt64)) as *UInt8
+            var fp8 = 0; var cases = 1
+            if format == QuantizedFormat.FP8E4M3FN { cases = 256 }
+            if format == QuantizedFormat.IQ3_XXS { cases = 4 }
+            while fp8 < cases {
+                prepareQuantizedCorpus(data, format, fp8)
+                if (fp8 & 127) != 127 {
+                    var count = 0
+                    while count <= quantizedBlockElements(format) {
+                        var mode = 0
+                        while mode < 4 {
+                            var width = 0
+                            if mode == 1 { width = 128 }; if mode == 2 { width = 256 }; if mode == 3 { width = 512 }
+                            checkCorpusPrefix(source, output, format, offset, count, width, fp8, ctx, progress)
+                            mode = mode + 1
+                        }
+                        count = count + 1
+                    }
+                } else {
+                    corpusRequire(errorIs(decodeQuantizedBlock(source, offset as UInt64, output, 0 as UInt64,
+                        format, 1, 128, ctx, progress), "simd.invalid_quantization"))
+                }
+                fp8 = fp8 + 1
+            }
+            offset = offset + 1
+        }
+        kind = kind + 1
+    }
+    println("PASS: quantized Q8_0 Q4_0 Q4_K Q2_K IQ3_XXS MXFP4 E4M3FN tails=all alignments=64 widths=scalar,128,256,512")
+    // Every finite E8M0 exponent, including subnormal scales, at every E2M1
+    // code. Overflow is rejected using integer metadata before FP arithmetic.
+    var exponent = 0
+    while exponent < 256 {
+        var code = 0
+        while code < 16 {
+            prepareQuantizedCorpus(source.data, QuantizedFormat.MXFP4, 0)
+            source.data[0] = exponent as UInt8; source.data[1] = code as UInt8
+            let magnitude = code % 8
+            let invalid = exponent == 255 or (exponent == 253 and magnitude >= 6) or (exponent == 254 and magnitude >= 4)
+            let result = decodeQuantizedBlock(source, 0 as UInt64, output, 0 as UInt64, QuantizedFormat.MXFP4, 1, 128, ctx, progress)
+            if invalid { corpusRequire(errorIs(result, "simd.invalid_quantization")) }
+            else {
+                must(result); var scale = 1.0 as Float64; var power = exponent - 127
+                while power > 0 { scale = scale * (2.0 as Float64); power = power - 1 }
+                while power < 0 { scale = scale / (2.0 as Float64); power = power + 1 }
+                let values = output.data as *Float32
+                corpusRequire(values[0] == ((scale * (corpusE2M1(code) as Float64)) as Float32))
+            }
+            code = code + 1
+        }
+        exponent = exponent + 1
+    }
+    output.data[0] = 165 as UInt8
+    prepareQuantizedCorpus(source.data, QuantizedFormat.Q8_0, 0)
+    corpusRequire(errorIs(decodeQuantizedBlock(source, 0 as UInt64, output, 0 as UInt64, QuantizedFormat.Q8_0, 33, 128, ctx, progress), "simd.invalid_quantization"))
+    corpusRequire(errorIs(decodeQuantizedBlock(source, 0 as UInt64, output, 0 as UInt64, QuantizedFormat.Q8_0, -1, 128, ctx, progress), "simd.invalid_quantization"))
+    corpusRequire(errorIs(decodeQuantizedBlock(source, 0 as UInt64, output, 0 as UInt64, QuantizedFormat.Q8_0, 32, 64, ctx, progress), "simd.invalid_policy"))
+    corpusRequire(errorIs(decodeQuantizedBlock(source, 18446744073709551615 as UInt64, output, 0 as UInt64, QuantizedFormat.Q8_0, 32, 128, ctx, progress), "simd.invalid_shape"))
+    corpusRequire(errorIs(decodeQuantizedBlock(source, 0 as UInt64, source, 0 as UInt64, QuantizedFormat.Q8_0, 32, 128, ctx, progress), "simd.invalid_alias"))
+    source.data[1] = 124 as UInt8
+    corpusRequire(errorIs(decodeQuantizedBlock(source, 0 as UInt64, output, 0 as UInt64, QuantizedFormat.Q8_0, 32, 128, ctx, progress), "simd.invalid_quantization"))
+    prepareQuantizedCorpus(source.data, QuantizedFormat.Q8_0, 0)
+    ctx.cancellation = true
+    corpusRequire(errorIs(decodeQuantizedBlock(source, 0 as UInt64, output, 0 as UInt64, QuantizedFormat.Q8_0, 32, 128, ctx, progress), "simd.cancelled"))
+    corpusRequire(progress.completed == (0 as UInt64)); ctx.cancellation = false
+    ctx.monotonicDeadline = 0 as Int64
+    corpusRequire(errorIs(decodeQuantizedBlock(source, 0 as UInt64, output, 0 as UInt64, QuantizedFormat.Q8_0, 32, 128, ctx, progress), "simd.timeout"))
+    corpusRequire(progress.completed == (0 as UInt64))
+    corpusRequire(output.data[0] == (165 as UInt8))
+    ctx.monotonicDeadline = 9223372036854775807 as Int64
+    source.close()
+    corpusRequire(errorIs(decodeQuantizedBlock(source, 0 as UInt64, output, 0 as UInt64, QuantizedFormat.Q8_0, 32, 128, ctx, progress), "simd.invalid_shape"))
+    ctx.limits.free(); ctx.traceId.free(); ctx.free(); progress.free()
+    source.free(); output.close(); output.free()
+    println("PASS: quantized invalid geometry alias metadata cancellation deadline and allocation stability")
+    return 0
+}

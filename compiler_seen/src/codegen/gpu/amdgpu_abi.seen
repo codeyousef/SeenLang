@@ -1,0 +1,32 @@
+/// seen-amdgpu-kernel-v1 uses HSA code-object v5 and 16-byte aligned kernargs.
+/// Explicit argument packing is shared with CUDA. HSA's 256-byte implicit block
+/// starts at the next 8-byte boundary and belongs to the launch buffer owner.
+import json.builder.{JsonBuilder}
+import codegen.gpu_ir_model.{GpuIrFunction}
+import codegen.gpu.launch_abi.{gpuAlignKernelParameter, gpuPackedKernelParameterBytes, gpuReflectionPackedKernelAbi}
+import codegen.gpu.amdgpu_target.{amdWavefrontSize}
+import codegen.gpu_ir_ops.{GPU_IR_SHARED}
+import codegen.gpu_ir_facts.{gpuIrElementStride}
+fun amdSharedStorageBytes(typeCode: Int, count: Int) r: Int { return gpuAlignKernelParameter(count * gpuIrElementStride(typeCode), 16) }
+fun amdStaticSharedBytes(borrow source: GpuIrFunction) r: Int {
+    var bytes = 0; var blockIndex = 0
+    while blockIndex < source.blocks.length() {
+        let block = source.blocks[blockIndex]; var i = 0
+        while i < block.instructions.length() {
+            let op = block.instructions[i]
+            if op.opcode == GPU_IR_SHARED { bytes = bytes + amdSharedStorageBytes(op.typeCode, op.immediate) }; i = i + 1
+        }; blockIndex = blockIndex + 1
+    }; return bytes
+}
+fun amdImplicitArgumentOffset(borrow source: GpuIrFunction, fault: Bool) r: Int {
+    return gpuAlignKernelParameter(gpuPackedKernelParameterBytes(source, fault), 8)
+}
+fun amdKernelArgumentBytes(borrow source: GpuIrFunction, fault: Bool) r: Int { return amdImplicitArgumentOffset(source, fault) + 256 }
+fun amdReflectionEntryAbi(builder: JsonBuilder, borrow source: GpuIrFunction, fault: Bool, target: String) r: Void {
+    gpuReflectionPackedKernelAbi(builder, source, fault, "seen-amdgpu-kernel-v1")
+    builder.intProp("hsa_code_object_version", 5); builder.intProp("kernarg_alignment", 16)
+    builder.intProp("implicit_argument_offset", amdImplicitArgumentOffset(source, fault)); builder.intProp("implicit_argument_bytes", 256)
+    builder.intProp("kernel_argument_bytes", amdKernelArgumentBytes(source, fault))
+    builder.intProp("wavefront_size", amdWavefrontSize(target))
+    builder.intProp("static_shared_byte_ceiling", amdStaticSharedBytes(source)); builder.intProp("launch_fault_mask", 16)
+}

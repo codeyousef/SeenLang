@@ -379,6 +379,13 @@ fun shouldSkipVecMethodDeclImpl(methodName: String) r: Bool {
         methodName == "toArray"
 }
 
+fun shouldSkipStringHashMapMetadataDeclImpl(className: String, methodName: String) r: Bool {
+    // These getters are emitted inline against the shared native map header;
+    // no source-method or foreign symbol exists to declare across modules.
+    return className == "StringHashMap" and
+        (methodName == "capacity" or methodName == "loadFactorPercent")
+}
+
 fun shouldRegisterCrossModuleFunctionImpl(funcName: String, isExtern: Bool,
     bodyStmtCount: Int, isRuntimeStringCompat: Bool) r: Bool {
 

@@ -1,0 +1,50 @@
+import bootstrap.owned_frontend.{runOwnedFrontendCompat}
+import codegen.gpu_extract.{hasGpuFunctions}
+import ir_fixture_support.{irRequire}
+import ir_lowering_support.{irLowerReject}
+import ir_rejection_support.{rejectionExpect, rejectionObserve}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun rejectionCheckNames(source: String, names: Array<String>, expected: Int, inject: Bool) r: Void {
+    let owner = runOwnedFrontendCompat(source, "rejection.seen", "en")
+    let frontend = owner.result; irRequire(frontend.success and hasGpuFunctions(frontend.program))
+    let baseline = seen_memory_used_bytes(); var round = 0
+    while round < 100 {
+        var i = 0
+        while i < names.length() {
+            frontend.program.items[0].function.name = names[i]
+            rejectionObserve(frontend.program, expected)
+            irRequire(seen_memory_used_bytes() == baseline); i = i + 1
+        }
+        round = round + 1
+    }
+    if inject {
+        let statement = frontend.program.items[0].function.body.statements[0]; let kind = statement.kind
+        statement.kind = "InjectedUnknownStatement"; statement.line = 17; statement.column = 9
+        rejectionExpect(frontend.program, "E_GPU_UNSUPPORTED", "unsupported GPU statement or host effect", 17, 9, true)
+        statement.kind = kind; let expressionKind = statement.expression.kind
+        statement.expression.kind = "InjectedUnknownExpression"; statement.line = 23; statement.column = 4
+        rejectionExpect(frontend.program, "E_GPU_UNSUPPORTED", "unsupported GPU expression or host effect", 23, 4, true)
+        statement.expression.kind = expressionKind
+    }
+    irRequire(seen_memory_used_bytes() == baseline)
+    owner.release()
+}
+fun main() r: Int {
+    let names = ["tensorElementwiseAdd", "vectorAdd", "vector_add", "matmul", "matMul", "matrixMultiply", "relu", "copy", "saxpy", "arbitrary_kernel_1087"]
+    let baseline = seen_memory_used_bytes()
+    rejectionCheckNames("@compute(1) fun arbitrary(output: WriteBuffer<Int32>) { output[0] = 7 }", names, 7, true)
+    irRequire(seen_memory_used_bytes() == baseline)
+    rejectionCheckNames("@compute(1) fun arbitrary(output: WriteBuffer<Int32>) { output[0] = 19 }", names, 19, false)
+    irRequire(seen_memory_used_bytes() == baseline)
+    println("PASS: GPU-001E kernel names cannot replace parsed body behavior")
+    irLowerReject("@compute(1) fun first() {} @vertex fun hidden() { println(1) }", "E_GPU_SIGNATURE")
+    irLowerReject("@compute(1) fun first() {} @fragment fun hidden() { println(1) }", "E_GPU_SIGNATURE")
+    irLowerReject("class Host { @device fun hidden() { println(1) } }", "E_GPU_SIGNATURE")
+    irLowerReject("@compute(1) fun tensorElementwiseAdd() { println(1) }", "E_GPU_UNSUPPORTED")
+    let cpuOwner = runOwnedFrontendCompat("fun tensorElementwiseAdd() { let marker = \"@compute @device @vertex @fragment\" }", "cpu.seen", "en")
+    let cpu = cpuOwner.result
+    irRequire(cpu.success and not hasGpuFunctions(cpu.program)); cpuOwner.release(); names.free()
+    println("PASS: GPU-001E stable rejection goldens unsupported stages and CPU marker isolation")
+    return 0
+}

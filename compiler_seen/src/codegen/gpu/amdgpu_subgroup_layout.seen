@@ -1,0 +1,18 @@
+/// Subgroup membership comes from launch geometry, including the final partial
+/// wave. It does not depend on transient EXEC masks inside checked-fault paths.
+import codegen.gpu.amdgpu_context.{GpuAmdFunction, amdValue, amdDefinition}
+import codegen.gpu.amdgpu_builtins.{amdBuiltin}
+import codegen.gpu.amdgpu_target.{amdWavefrontSize}
+fun amdSubgroupCount(function: GpuAmdFunction) r: Int {
+    let width = amdWavefrontSize(function.target); let base = function.allocate(1)
+    function.binary("and", base, amdBuiltin(function, 5), function.word(0 - width))
+    let count = function.allocate(1); function.binary("sub", count, function.word(function.workgroupX * function.workgroupY * function.workgroupZ), base)
+    function.select(count, count, function.word(width), function.compare("ult", count, function.word(width), false)); return count
+}
+fun amdShuffleWord(function: GpuAmdFunction, value: Int, lane: Int) r: Int {
+    let offset = function.allocate(1); function.binary("shl", offset, lane, function.word(2))
+    let byteOffset = function.read(offset); let source = function.read(value); let native = function.value(); amdDefinition(function.body, native)
+    function.body.literal("call i32 @llvm.amdgcn.ds.bpermute(i32 "); amdValue(function.body, byteOffset)
+    function.body.literal(", i32 "); amdValue(function.body, source); function.body.literal(")\n")
+    let result = function.allocate(1); function.write(result, native); return result
+}

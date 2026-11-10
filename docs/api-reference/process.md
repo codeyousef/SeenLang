@@ -101,6 +101,7 @@ let arguments = args()  // returns Array<String>
 for arg in arguments {
     println(arg)
 }
+releaseArgs(arguments)
 ```
 
 ### Shell Quoting

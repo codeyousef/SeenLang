@@ -1,3 +1,4 @@
+import seen_compiler.testing.cli_runner.{testCliOperationContext}
 import seen_compiler.testing.runner.{TestExecutionResult, TestRunReport}
 import seen_compiler.testing.reporters.{TestReporterFormat,
     TestReporterRequest, renderTestReportChecked}
@@ -37,7 +38,39 @@ fun request(format: TestReporterFormat) r: TestReporterRequest {
     return TestReporterRequest{format: format, suiteName: "seen"}
 }
 
+fun test001eLargeCliCatalog() r: Bool {
+    let results = Array<TestExecutionResult>()
+    var index = 0
+    while index < 600 {
+        var suffix = index.toString()
+        while suffix.length() < 4 { suffix = "0" + suffix }
+        var status = "skipped"
+        if index == 0 { status = "passed" }
+        results.push(TestExecutionResult{
+            path: "compiler_seen/tests/catalogue_" + suffix + ".seen",
+            status: status, exitCode: 0})
+        index = index + 1
+    }
+    let report = TestRunReport{schema: "seen-test-run-v1", results: results,
+        passed: 1, failed: 0, skipped: 599, exitCode: 0}
+    let small = testCliOperationContext()
+    small.limits.maxManifestBytes = 65536
+    let bounded = renderTestReportChecked(report, request(TestReporterFormat.Json), small)
+    if bounded.success or bounded.errors[0].code.value != "test.001e.limit" { return false }
+    let formats = [TestReporterFormat.Human, TestReporterFormat.Json, TestReporterFormat.Junit]
+    index = 0
+    while index < formats.length() {
+        let rendered = renderTestReportChecked(report, request(formats[index]),
+            testCliOperationContext())
+        if not rendered.success or rendered.values[0].content == "" { return false }
+        index = index + 1
+    }
+    return true
+}
+
 fun main() r: Int {
+    if not test001eLargeCliCatalog() { return 2 }
+    println("PASS: TEST-001E large CLI catalog and explicit byte limit")
     let report = test001eReport()
     let human = renderTestReportChecked(
         report, request(TestReporterFormat.Human), test001eContext())

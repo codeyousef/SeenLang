@@ -1,0 +1,44 @@
+/// E4M3FN bit semantics with nearest-even rounding, finite saturation and a
+/// canonical 0x7f NaN. No native float8 arithmetic capability is implied.
+import codegen.gpu.scalar_plan.{GpuScalarPlan}
+import codegen.gpu.scalar_ops.{SCALAR_ADD, SCALAR_BITCAST, SCALAR_BIT_AND, SCALAR_BIT_OR, SCALAR_EQUAL, SCALAR_FLOAT_MULTIPLY, SCALAR_FLOAT_TO_UINT, SCALAR_SHIFT_LEFT, SCALAR_SHIFT_RIGHT, SCALAR_SUBTRACT, SCALAR_UINT_TO_FLOAT, SCALAR_UNSIGNED_GREATER, SCALAR_UNSIGNED_LESS}
+import codegen.gpu.scalar_float_bits.{scalarRoundRightEven}
+import codegen.gpu.scalar_packed_float.{scalarFloatIsNan}
+
+fun scalarPackFp8(plan: GpuScalarPlan, value: Int) r: Int {
+    let context = plan; let bits = plan.unary(SCALAR_BITCAST, 3, value)
+    let magnitude = plan.binary(SCALAR_BIT_AND, 3, bits, context.constant(3, 2147483647))
+    let high = scalarRoundRightEven(plan, magnitude, 20)
+    let normal = plan.binary(SCALAR_SUBTRACT, 3, high, context.constant(3, 960))
+    let overflow = plan.binary(SCALAR_UNSIGNED_GREATER, 1, normal, context.constant(3, 126))
+    let saturated = plan.select(3, overflow, context.constant(3, 126), normal)
+    let subnormal = plan.binary(SCALAR_UNSIGNED_LESS, 1, magnitude, context.constant(3, 1015021568))
+    let smallBits = plan.select(3, subnormal, magnitude, context.constant(3, 0))
+    let smallValue = plan.unary(SCALAR_BITCAST, 4, smallBits)
+    let scaled = plan.binary(SCALAR_FLOAT_MULTIPLY, 4, smallValue, context.constant(4, 1140850688))
+    let integral = plan.roundEven(scaled); let subPayload = plan.unary(SCALAR_FLOAT_TO_UINT, 3, integral)
+    let payload = plan.select(3, subnormal, subPayload, saturated)
+    let highSign = plan.binary(SCALAR_SHIFT_RIGHT, 3, bits, context.constant(3, 24))
+    let sign = plan.binary(SCALAR_BIT_AND, 3, highSign, context.constant(3, 128))
+    let signed = plan.binary(SCALAR_BIT_OR, 3, payload, sign)
+    return plan.select(3, scalarFloatIsNan(plan, bits), context.constant(3, 127), signed)
+}
+fun scalarUnpackFp8(plan: GpuScalarPlan, payload: Int) r: Int {
+    let context = plan; let mantissa = plan.binary(SCALAR_BIT_AND, 3, payload, context.constant(3, 7))
+    let high = plan.binary(SCALAR_SHIFT_RIGHT, 3, payload, context.constant(3, 3))
+    let exponent = plan.binary(SCALAR_BIT_AND, 3, high, context.constant(3, 15))
+    let biased = plan.binary(SCALAR_ADD, 3, exponent, context.constant(3, 120))
+    let exponentBits = plan.binary(SCALAR_SHIFT_LEFT, 3, biased, context.constant(3, 23))
+    let mantissaBits = plan.binary(SCALAR_SHIFT_LEFT, 3, mantissa, context.constant(3, 20))
+    let normal = plan.binary(SCALAR_BIT_OR, 3, exponentBits, mantissaBits)
+    let subFloat = plan.binary(SCALAR_FLOAT_MULTIPLY, 4, plan.unary(SCALAR_UINT_TO_FLOAT, 4, mantissa), context.constant(4, 989855744))
+    let isSubnormal = plan.binary(SCALAR_EQUAL, 1, exponent, context.constant(3, 0))
+    let unsigned = plan.select(3, isSubnormal, plan.unary(SCALAR_BITCAST, 3, subFloat), normal)
+    let sign = plan.binary(SCALAR_BIT_AND, 3, payload, context.constant(3, 128))
+    let signBits = plan.binary(SCALAR_SHIFT_LEFT, 3, sign, context.constant(3, 24))
+    let bits = plan.binary(SCALAR_BIT_OR, 3, unsigned, signBits)
+    let magnitude = plan.binary(SCALAR_BIT_AND, 3, payload, context.constant(3, 127))
+    let nan = plan.binary(SCALAR_EQUAL, 1, magnitude, context.constant(3, 127))
+    let canonical = plan.select(3, nan, context.constant(3, 2143289344), bits)
+    return plan.unary(SCALAR_BITCAST, 4, canonical)
+}

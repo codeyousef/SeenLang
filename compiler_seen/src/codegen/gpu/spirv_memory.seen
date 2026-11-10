@@ -1,0 +1,75 @@
+/// Checked resource addressing. Invalid indices never form a data pointer;
+/// loads yield zero and stores skip the write while recording a bounded fault.
+import codegen.gpu.spirv_function.{GpuSpirvFunction}
+import codegen.gpu.spirv_layout.{GpuSpirvResource}
+import typechecker.gpu_types.{gpuTypeValue}
+
+class GpuSpirvIndex {
+    var unsignedIndex: Int
+    var condition: Int
+}
+fun spirvResourceLength(function: GpuSpirvFunction, resource: GpuSpirvResource) r: Int {
+    if resource.storage == 4 { return resource.fixedLength }
+    if resource.storage != 12 or resource.typeCode == 0 {
+        function.context.error("E_GPU_SPIRV_LAYOUT", "SPIR-V resource has no runtime element length"); return 0
+    }
+    let context = function.context; let length = context.id()
+    function.emit(68, [context.valueType(3), length, resource.variable, 0]); return length
+}
+fun spirvCheckedIndex(function: GpuSpirvFunction, resource: GpuSpirvResource, value: Int, typeCode: Int) r: GpuSpirvIndex {
+    let context = function.context; let boolean = context.valueType(1); var unsignedIndex = value
+    if typeCode != 2 and typeCode != 3 {
+        context.error("E_GPU_SPIRV_LAYOUT", "SPIR-V resource index is not a 32-bit integer")
+        return GpuSpirvIndex{unsignedIndex: 0, condition: 0}
+    }
+    if typeCode == 2 {
+        unsignedIndex = context.id(); function.emit(124, [context.valueType(3), unsignedIndex, value])
+    }
+    let length = spirvResourceLength(function, resource); var condition = context.id()
+    function.emit(176, [boolean, condition, unsignedIndex, length])
+    if typeCode == 2 {
+        let positive = context.id(); let combined = context.id()
+        function.emit(175, [boolean, positive, value, context.constant(2, 0)])
+        function.emit(167, [boolean, combined, positive, condition]); condition = combined
+    }
+    return GpuSpirvIndex{unsignedIndex: unsignedIndex, condition: condition}
+}
+fun spirvElementPointer(function: GpuSpirvFunction, resource: GpuSpirvResource, index: Int) r: Int {
+    let pointer = function.context.id()
+    if resource.storage == 4 { function.emit(65, [resource.elementPointer, pointer, resource.variable, index]) }
+    else { function.emit(65, [resource.elementPointer, pointer, resource.variable, function.context.constant(3, 0), index]) }
+    return pointer
+}
+fun spirvCheckedLoad(function: GpuSpirvFunction, resourceIndex: Int, index: Int, indexType: Int) r: Int {
+    let context = function.context
+    if resourceIndex < 0 or resourceIndex >= function.resources.length() { context.error("E_GPU_SPIRV_LAYOUT", "SPIR-V load resource identity is unavailable"); return 0 }
+    let resource = function.resources[resourceIndex]; let checked = spirvCheckedIndex(function, resource, index, indexType)
+    if not context.validation.valid { checked.free(); return 0 }
+    let yes = context.id(); let no = context.id(); let merge = context.id(); let result = context.id()
+    let typeId = context.valueType(gpuTypeValue(resource.typeCode)); function.emit(247, [merge, 0])
+    function.conditional(checked.condition, yes, no); function.label(yes)
+    let pointer = spirvElementPointer(function, resource, checked.unsignedIndex); let loaded = context.id(); function.emit(61, [typeId, loaded, pointer]); function.branch(merge)
+    function.label(no); function.faultKind(1); function.branch(merge); function.label(merge)
+    function.emit(245, [typeId, result, loaded, yes, context.zero(gpuTypeValue(resource.typeCode)), no]); checked.free(); return result
+}
+fun spirvCheckedStore(function: GpuSpirvFunction, resourceIndex: Int, index: Int, indexType: Int, value: Int) r: Void {
+    let context = function.context
+    if resourceIndex < 0 or resourceIndex >= function.resources.length() { context.error("E_GPU_SPIRV_LAYOUT", "SPIR-V store resource identity is unavailable"); return }
+    let resource = function.resources[resourceIndex]; let checked = spirvCheckedIndex(function, resource, index, indexType)
+    if not context.validation.valid { checked.free(); return }
+    let yes = context.id(); let no = context.id(); let merge = context.id(); function.emit(247, [merge, 0])
+    function.conditional(checked.condition, yes, no); function.label(yes)
+    let pointer = spirvElementPointer(function, resource, checked.unsignedIndex); function.emit(62, [pointer, value]); function.branch(merge)
+    function.label(no); function.faultKind(1); function.branch(merge); function.label(merge); checked.free()
+}
+fun spirvUniformLoad(function: GpuSpirvFunction, resourceIndex: Int) r: Int {
+    let context = function.context
+    if resourceIndex < 0 or resourceIndex >= function.resources.length() { context.error("E_GPU_SPIRV_LAYOUT", "SPIR-V uniform identity is unavailable"); return 0 }
+    let resource = function.resources[resourceIndex]; let typeCode = gpuTypeValue(resource.typeCode)
+    var storedType = typeCode; if typeCode == 1 { storedType = 3 }
+    let pointer = context.id(); let loaded = context.id()
+    function.emit(65, [resource.elementPointer, pointer, resource.variable, context.constant(3, 0)])
+    function.emit(61, [context.valueType(storedType), loaded, pointer])
+    if typeCode != 1 { return loaded }
+    let result = context.id(); function.emit(171, [context.valueType(1), result, loaded, context.constant(3, 0)]); return result
+}

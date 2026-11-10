@@ -1,0 +1,6 @@
+@compute(workgroup: [8, 8, 1])
+fun renamedScale(input: ReadBuffer<Float32>, output: WriteBuffer<Float32>, factor: Uniform<Float32>) {
+    let index = globalInvocationId.x
+    if index < input.length { output[index] = input[index] * factor }
+}
+fun main() r: Int { return 0 }

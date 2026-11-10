@@ -44,6 +44,19 @@ class MigrationTests(unittest.TestCase):
         value=M.discover(ROOT); self.assertEqual(len(value["entries"]),3)
         with tempfile.TemporaryDirectory() as directory:
             with self.assertRaises(M.MigrationError): M.discover(Path(directory))
+    def test_program_roles_do_not_inflate_migration_counts(self):
+        with tempfile.TemporaryDirectory(dir=ROOT / ".seen") as directory:
+            root = Path(directory)
+            for _, package, _ in M.SOURCES:
+                tests = root / package / "tests"
+                tests.mkdir(parents=True)
+                (tests.parent / "Seen.toml").write_text("manifest-version = 1\n")
+                for name in ("helper_support.seen", "input_fixture.seen",
+                             "real_support_test.seen", "real_fixture_test.seen"):
+                    (tests / name).write_text("// discovery-only fixture\n")
+            plan = M.discover(root)
+            self.assertEqual([2, 2, 2], [entry["test_count"] for entry in plan["entries"]])
+            self.assertEqual(6, plan["total_tests"])
     def test_fuzz_and_benchmark(self):
         raw=HAPPY.read_bytes(); cases,rejected=M.fuzz(raw,0.001,1101)
         self.assertGreater(cases,0); self.assertGreater(rejected,0)

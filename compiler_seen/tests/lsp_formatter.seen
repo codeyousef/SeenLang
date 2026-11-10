@@ -7,6 +7,7 @@ import lsp.formatter.{formatSeenText, formatSeenTextWithLanguage,
 import bootstrap.frontend.{run_frontend}
 import json.builder.{jsonToString, releaseJsonText}
 import json.value.{JsonValue_destroy}
+import json.parser.{parseJson, destroyJsonParseResult}
 
 fun expectEqual(actual: String, expected: String, label: String) r: Bool {
     if actual != expected {
@@ -27,6 +28,42 @@ fun expectFrontendSuccess(source: String, language: String, label: String)
         return false
     }
     return true
+}
+
+fun formatterSerializedEditValid(text: String) r: Bool {
+    let parsed = parseJson(text)
+    var valid = false
+    if parsed.success == 1 and parsed.value != null {
+        let root = parsed.value.unwrap()
+        let range = root.get("range")
+        let replacement = root.get("newText")
+        if range != null and replacement != null {
+            let start = range.unwrap().get("start")
+            let end = range.unwrap().get("end")
+            if start != null and end != null {
+                let startLine = start.unwrap().get("line")
+                let startCharacter = start.unwrap().get("character")
+                let endLine = end.unwrap().get("line")
+                let endCharacter = end.unwrap().get("character")
+                if startLine != null and startCharacter != null and
+                    endLine != null and endCharacter != null {
+
+                    valid = replacement.unwrap().isString() and
+                        replacement.unwrap().getString() == " let x = " and
+                        startLine.unwrap().isNumber() and
+                        startLine.unwrap().getNumber() == 0.0 and
+                        startCharacter.unwrap().isNumber() and
+                        startCharacter.unwrap().getNumber() == 17.0 and
+                        endLine.unwrap().isNumber() and
+                        endLine.unwrap().getNumber() == 0.0 and
+                        endCharacter.unwrap().isNumber() and
+                        endCharacter.unwrap().getNumber() == 23.0
+                }
+            }
+        }
+    }
+    destroyJsonParseResult(parsed, true)
+    return valid
 }
 
 fun main() r: Int {
@@ -153,9 +190,7 @@ fun main() r: Int {
     }
     let editJsonRoot = edits[0].toJson()
     let editJson = jsonToString(editJsonRoot)
-    let editJsonValid = editJson.contains("\"character\":17") and
-        editJson.contains("\"character\":23") and
-        editJson.contains("\"newText\":\" let x = \"")
+    let editJsonValid = formatterSerializedEditValid(editJson)
     releaseJsonText(editJson)
     JsonValue_destroy(editJsonRoot)
     if not editJsonValid {

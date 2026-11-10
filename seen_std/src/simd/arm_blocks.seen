@@ -1,0 +1,53 @@
+/// Unchecked bounded ARM blocks used only after current-host selection.
+import simd.dot_scalar.{bf16Float}
+
+@simd_target("portable128")
+fun dotF32Neon(left: *Float32, right: *Float32, count: UInt64) r: Float32 {
+    var sums = f32x4(0, 0, 0, 0); var i = 0 as UInt64
+    while count - i >= (4 as UInt64) {
+        let a: f32x4 = simd_load_f32x4_unaligned(((left as UInt64) + i * (4 as UInt64)) as Int)
+        let b: f32x4 = simd_load_f32x4_unaligned(((right as UInt64) + i * (4 as UInt64)) as Int)
+        sums = sums + a * b; i = i + (4 as UInt64)
+    }
+    var value: Float32 = sums.reduce_add()
+    while i < count { value = value + left[i] * right[i]; i = i + (1 as UInt64) }
+    return value
+}
+@noinline
+fun dotU8S8Neon(left: *UInt8, right: *Int8, count: UInt64) r: Int64 {
+    var value = 0 as Int64; var i = 0 as UInt64
+    while count - i >= (16 as UInt64) {
+        value = value + simd_unsafe_arm_neon_u8s8(((left as UInt64) + i) as Int,
+            ((right as UInt64) + i) as Int)
+        i = i + (16 as UInt64)
+    }
+    while i < count {
+        value = value + (left[i] as Int64) * (right[i] as Int64); i = i + (1 as UInt64)
+    }
+    return value
+}
+@noinline
+fun dotBf16Neon(left: *UInt16, right: *UInt16, count: UInt64) r: Float32 {
+    var value = 0.0 as Float32; var i = 0 as UInt64
+    while count - i >= (4 as UInt64) {
+        value = value + simd_unsafe_arm_neon_bf16(((left as UInt64) + i * (2 as UInt64)) as Int,
+            ((right as UInt64) + i * (2 as UInt64)) as Int)
+        i = i + (4 as UInt64)
+    }
+    while i < count {
+        value = value + bf16Float(left[i]) * bf16Float(right[i]); i = i + (1 as UInt64)
+    }
+    return value
+}
+@noinline
+fun dotF32Sve(left: UInt64, right: UInt64, count: UInt64) r: Float32 {
+    return simd_unsafe_arm_sve_f32(left, right, count)
+}
+@noinline
+fun dotU8S8Sve(left: UInt64, right: UInt64, count: UInt64) r: Int64 {
+    return simd_unsafe_arm_sve_u8s8(left, right, count)
+}
+@noinline
+fun dotBf16Sve(left: UInt64, right: UInt64, count: UInt64) r: Float32 {
+    return simd_unsafe_arm_sve_bf16(left, right, count)
+}

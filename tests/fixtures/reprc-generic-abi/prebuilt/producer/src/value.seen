@@ -1,0 +1,13 @@
+@repr(C)
+@trivially_copyable
+pub class GenericAbiRecord<T> {
+    var address: *const T
+    var length: UInt64
+}
+
+pub class PrebuiltRecordProbe {
+    var bias: Int
+    fun markerAfterRecord(value: GenericAbiRecord<UInt8>, marker: Int) r: Int {
+        return marker + this.bias
+    }
+}

@@ -2,6 +2,22 @@
 
 import codegen.ir_optimization.{parseIntManual, pipeGet}
 
+// Qualified members belong to an enum, not to the first matching variant
+// spelling in the whole module graph. A missing member is not ordinal zero.
+fun findEnumVariantInParentImpl(parentName: String, variantName: String,
+    enumVariantNames: String, enumVariantParent: String,
+    enumVariantCount: Int) r: Int {
+    var index = 0
+    while index < enumVariantCount {
+        if pipeGet(enumVariantNames, index) == variantName and
+            pipeGet(enumVariantParent, index) == parentName {
+            return index
+        }
+        index = index + 1
+    }
+    return -1
+}
+
 // Parse a single digit character to int
 fun parseDigitChar(c: String) r: Int {
     if c == "0" { return 0 }

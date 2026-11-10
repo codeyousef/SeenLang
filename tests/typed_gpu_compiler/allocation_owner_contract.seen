@@ -1,0 +1,49 @@
+import bootstrap.allocation_owner.{FrontendAllocationOwner}
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); var round = 0
+    while round < 20 {
+        let owner = FrontendAllocationOwner.create(); owner.attach()
+        let integers = HashMap<Int, Int>()
+        let strings = HashMap<String, Int>()
+        let stringValues = HashMap<String, String>()
+        let integerStrings = HashMap<Int, String>()
+        let keys = Array<String>(); var index = 0
+        while index < 200 {
+            let key = index.toString(); keys.push(key)
+            integers.insert(index, index + 17); strings.insert(key, index + 17)
+            stringValues.insert(key, key); integerStrings.insert(index, key)
+            index = index + 1
+        }
+        index = 0
+        while index < 200 {
+            let key = keys[index]
+            if integers.getUnchecked(index) != index + 17 or strings.getUnchecked(key) != index + 17 {
+                abort("hash-map growth lost integer values")
+            }
+            let stringValue: String = stringValues.getUnchecked(key)
+            let integerString: String = integerStrings.getUnchecked(index)
+            if stringValue != key { abort("string-key map growth lost string values") }
+            if integerString != key { abort("integer-key map growth lost string values") }
+            if index % 3 == 0 {
+                integers.removeUnchecked(index); strings.removeUnchecked(key)
+                stringValues.removeUnchecked(key); integerStrings.removeUnchecked(index)
+                integers.insert(index, 42); strings.insert(key, 42)
+                stringValues.insert(key, "replacement"); integerStrings.insert(index, "replacement")
+                let replacedString: String = stringValues.getUnchecked(key)
+                let replacedInteger: String = integerStrings.getUnchecked(index)
+                if integers.getUnchecked(index) != 42 or strings.getUnchecked(key) != 42 or
+                    replacedString != "replacement" or replacedInteger != "replacement" {
+                    abort("hash-map tombstone reinsertion lost replacement")
+                }
+            }
+            index = index + 1
+        }
+        owner.pause(); owner.release()
+        if seen_memory_used_bytes() != baseline { abort("hash-map growth retained allocation budget") }
+        round = round + 1
+    }
+    println("PASS: Seen allocation owner restores all four growing hash-map storage budgets")
+    return 0
+}

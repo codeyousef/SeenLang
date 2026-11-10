@@ -37,10 +37,11 @@ retryable.
   late overlapped results. The owner of an overlapped operation retains its
   storage until cancellation or late-result cleanup completes.
 
-`BlockingPool.create(workers, capacity)` creates a fixed number of workers and
-a bounded queue. Submission rejects overflow, cancellation removes only work
-that has not started, and `close` drains accepted work and joins every worker.
-It does not create nested workers.
+Blocking execution uses the Seen `TypedWorkerPool<T>`/`ExecutionPools<T>`
+contracts in `async.pools`. The previous raw function-address BlockingPool
+surface and its C scheduling implementation have been removed. CPU/blocking
+budgets, typed captures, cancellation, ownership and placement are defined in
+[Async](async.md). No implicit fallback to an untyped native pool remains.
 
 ## Example
 
@@ -60,4 +61,4 @@ let closed = reactor.close()
 The native ledger entry `reactor-os-adapter` lists the complete ABI. Native
 Seen owns validation, scheduling, timer policy, fairness, generations,
 fallback decisions, and diagnostics; the C runtime only normalizes operating
-system queues, wakeups, handle closure, and fixed worker execution.
+system queues, wakeups and handle closure.

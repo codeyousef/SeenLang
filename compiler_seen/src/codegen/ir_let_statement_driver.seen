@@ -11,6 +11,7 @@ import codegen.ir_stmt_dead_code.{shouldSkipDeadLiteralInitializerImpl}
 import codegen.ir_stmt_decl.{shouldInferDeclarationInitializerTypeImpl, shouldSeedDeclarationPendingArrayLiteralTypeImpl, resolveLetStatementAllocaImpl, emitDeadLiteralInitializerSkipNoteImpl, emitDeclarationInitializerStoreImpl}
 import codegen.ir_stmt_var_collect_driver.{inferDeclarationInitializerTypeState}
 import codegen.ir_value_coercion.{coerceValueForLlvmTargetImpl}
+import codegen.ir_value_coercion.{releaseLiteralStorageImpl}
 import codegen.ir_assignment_coerce.{coerceOptionStoreValueCoreImpl}
 import codegen.ir_assignment_move_driver.{applyMoveAssignmentSemanticsState}
 import codegen.ir_variable_gen.{storeActiveVariableBindingImpl}
@@ -63,7 +64,7 @@ fun emitLetStatementInitializerState(ctx: CodegenLoweringContext,
         valueReg = loadedValueReg
     }
     var storedValueReg = coerceOptionStoreValueCoreImpl(output,
-        getFeatureRegBoxImpl(), varType, initializerType, valueReg,
+        getFeatureRegBoxImpl(), varType, initializerType, valueReg, stmt.initializer.kind,
         getGlobalStructNamesImpl())
     var storedValueType = initializerType
     if storedValueReg != valueReg {
@@ -72,7 +73,8 @@ fun emitLetStatementInitializerState(ctx: CodegenLoweringContext,
     storedValueReg = coerceLetInitializerValueForLlvmTargetState(output,
         llvmType, storedValueType, storedValueReg)
     if stmt.initializer.kind == "StructLiteral" and llvmType == "i64" and
-        not isClassTypeState(initializerType) and storedValueReg.startsWith("%") {
+        not isClassTypeState(initializerType) and storedValueReg == valueReg and
+        storedValueReg.startsWith("%") {
 
         let handleReg = getNextRegFn(getFeatureRegBoxImpl())
         output.append("  " + handleReg + " = ptrtoint ptr " +
@@ -84,11 +86,7 @@ fun emitLetStatementInitializerState(ctx: CodegenLoweringContext,
     if stmt.initializer.kind == "StructLiteral" and
         llvmType.startsWith("%") and isDataTypeState(initializerType) {
         let literalSize = getDataTypeSizeState(initializerType)
-        if literalSize > 0 {
-            output.append("  call void @seen_pool_free(ptr " +
-                literalStorageReg + ", i64 " + literalSize.toString() +
-                ")\n")
-        }
+        releaseLiteralStorageImpl(output, literalStorageReg, literalSize)
     }
 }
 

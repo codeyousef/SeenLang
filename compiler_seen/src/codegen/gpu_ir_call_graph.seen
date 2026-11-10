@@ -1,0 +1,70 @@
+/// Device calls are acyclic and have a bounded static expansion. Summaries also
+/// propagate the strictest collective convergence requirement through helpers.
+import codegen.gpu_ir_model.{GpuIrModule, GpuIrValidation}
+import codegen.gpu_ir_ops.{GPU_IR_CALL, GPU_IR_BARRIER, GPU_IR_SUBGROUP, GPU_IR_COOP_LOAD, GPU_IR_COOP_FILL}
+
+@move
+class GpuIrCallFacts {
+    var states: Array<Int>
+    var expansions: Array<Int>
+    var convergence: Array<Int>
+    var heights: Array<Int>
+    static fun create(functions: Int) r: GpuIrCallFacts {
+        let result = GpuIrCallFacts{states: Array<Int>(), expansions: Array<Int>(), convergence: Array<Int>(), heights: Array<Int>()}
+        var i = 0
+        while i < functions { result.states.push(0); result.expansions.push(0); result.convergence.push(3); result.heights.push(1); i = i + 1 }
+        return result
+    }
+    fun release() r: Void { this.states.free(); this.expansions.free(); this.convergence.free(); this.heights.free(); this.free() }
+}
+fun gpuIrVisitCalls(borrow module: GpuIrModule, borrow calls: GpuIrCallFacts, validation: GpuIrValidation,
+    functionIndex: Int, depth: Int) r: Bool {
+    if depth > 16 or calls.states[functionIndex] == 1 {
+        validation.reject("E_GPU_IR_CALL_GRAPH", "GPU device recursion or call-depth ceiling exceeded", functionIndex, -1, -1); return false
+    }
+    if calls.states[functionIndex] == 2 { return true }
+    calls.states[functionIndex] = 1
+    let function = module.functions[functionIndex]; var expansion = 0; var convergence = 3; var height = 1; var blockIndex = 0
+    while blockIndex < function.blocks.length() {
+        let block = function.blocks[blockIndex]; var opIndex = 0
+        while opIndex < block.instructions.length() {
+            let op = block.instructions[opIndex]; var added = 1
+            if op.opcode == GPU_IR_CALL {
+                if not gpuIrVisitCalls(module, calls, validation, op.immediate, depth + 1) { return false }
+                added = added + calls.expansions[op.immediate]
+                if calls.heights[op.immediate] >= height { height = calls.heights[op.immediate] + 1 }
+                if height > 16 {
+                    validation.reject("E_GPU_IR_CALL_GRAPH", "GPU helper chain exceeds the call-depth ceiling", functionIndex, blockIndex, opIndex); return false
+                }
+                if calls.convergence[op.immediate] < convergence { convergence = calls.convergence[op.immediate] }
+            }
+            if op.opcode == GPU_IR_BARRIER {
+                var required = 1; if op.memoryScope == 2 { required = 2 }
+                if required < convergence { convergence = required }
+            }
+            if op.opcode == GPU_IR_SUBGROUP and convergence > 2 { convergence = 2 }
+            if op.opcode >= GPU_IR_COOP_LOAD and op.opcode <= GPU_IR_COOP_FILL and convergence > 2 { convergence = 2 }
+            if added > 65536 - expansion {
+                validation.reject("E_GPU_IR_LIMIT", "GPU helper expansion exceeds its instruction ceiling", functionIndex, blockIndex, opIndex); return false
+            }
+            expansion = expansion + added; opIndex = opIndex + 1
+        }
+        blockIndex = blockIndex + 1
+    }
+    calls.expansions[functionIndex] = expansion; calls.convergence[functionIndex] = convergence; calls.heights[functionIndex] = height
+    calls.states[functionIndex] = 2; return true
+}
+fun gpuIrCallGraphValid(borrow module: GpuIrModule, borrow calls: GpuIrCallFacts, validation: GpuIrValidation) r: Bool {
+    var i = 0; var total = 0
+    while i < module.functions.length() {
+        if not gpuIrVisitCalls(module, calls, validation, i, 1) { return false }
+        if module.functions[i].kernel {
+            if calls.expansions[i] > 65536 - total {
+                validation.reject("E_GPU_IR_LIMIT", "GPU entrypoint expansions exceed the module ceiling", i, -1, -1); return false
+            }
+            total = total + calls.expansions[i]
+        }
+        i = i + 1
+    }
+    return true
+}

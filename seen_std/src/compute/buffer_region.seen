@@ -1,0 +1,72 @@
+/// A bounded read or exclusive write borrow of a typed buffer's bytes.
+/// The owning buffer and native context cannot close while the region lives.
+import compute.resource_arena_core.{GpuArenaCore, gpuReleaseResourceLease}
+import compute.context_lease.{GpuContextLease}
+import compute.error.{GpuError, gpuFailure}
+import core.operation_context.{OperationContext}
+import core.result.{Result, Ok, Err}
+
+@move
+class GpuBufferRegion {
+    var core: GpuArenaCore
+    var lease: GpuContextLease
+    var slot: Int
+    var generation: UInt64
+    var offset: UInt64
+    var bytes: UInt64
+    var spanBytes: UInt64
+    var write: Bool
+    var active: Bool
+
+    static fun acquire(core: GpuArenaCore, index: Int, generation: UInt64,
+        relative: UInt64, bytes: UInt64, write: Bool, operation: OperationContext)
+        r: Result<GpuBufferRegion, GpuError> {
+        if not core.validSlot(index, generation) {
+            return Err<GpuBufferRegion, GpuError>(gpuFailure("gpu.invalid", "gpu.buffer.region", "GPU byte region requires a live buffer generation"))
+        }
+        let slot = core.slots[index]
+        let block = core.blocks[slot.block]
+        if block.mappedBorrowers != 0 and not block.native.hostCoherent {
+            return Err<GpuBufferRegion, GpuError>(gpuFailure("gpu.busy", "gpu.buffer.region", "noncoherent host mapping excludes every other block borrow"))
+        }
+        if bytes == (0 as UInt64) or relative > slot.requestedBytes or bytes > slot.requestedBytes - relative {
+            return Err<GpuBufferRegion, GpuError>(gpuFailure("gpu.invalid", "gpu.buffer.region", "GPU byte region escapes its logical buffer payload"))
+        }
+        if slot.writers != 0 or (write and slot.readers != 0) {
+            return Err<GpuBufferRegion, GpuError>(gpuFailure("gpu.busy", "gpu.buffer.region", "GPU byte region conflicts with an existing buffer borrow"))
+        }
+        let acquired = slot.lease.borrow(operation)
+        if acquired.isErr() { let error = acquired.unwrapErr(); acquired.releaseContainer(); return Err<GpuBufferRegion, GpuError>(error) }
+        let lease = acquired.unwrap(); acquired.releaseContainer()
+        let region = GpuBufferRegion{core: core, lease: lease, slot: index, generation: generation,
+            offset: slot.range.offset + relative, bytes: bytes, spanBytes: slot.range.bytes - relative,
+            write: write, active: true}
+        if write { slot.writers = slot.writers + 1 } else { slot.readers = slot.readers + 1 }
+        block.regionBorrowers = block.regionBorrowers + 1
+        return Ok<GpuBufferRegion, GpuError>(region)
+    }
+    fun valid() r: Bool {
+        if not this.active or not this.core.validSlot(this.slot, this.generation) or not this.lease.valid() { return false }
+        let slot = this.core.slots[this.slot]
+        if this.core.blocks[slot.block].regionBorrowers <= 0 { return false }
+        if this.write { return slot.writers == 1 and slot.readers == 0 }
+        return slot.readers > 0 and slot.writers == 0
+    }
+    fun close() r: Result<Bool, GpuError> {
+        if not this.active { return Ok<Bool, GpuError>(false) }
+        if not this.valid() {
+            return Err<Bool, GpuError>(gpuFailure("gpu.invalid", "gpu.buffer.region.close", "GPU byte region generation or borrow identity is stale"))
+        }
+        let slot = this.core.slots[this.slot]
+        gpuReleaseResourceLease(this.lease)
+        if this.write { slot.writers = slot.writers - 1 } else { slot.readers = slot.readers - 1 }
+        let block = this.core.blocks[slot.block]; block.regionBorrowers = block.regionBorrowers - 1
+        this.active = false
+        return Ok<Bool, GpuError>(true)
+    }
+    fun release() r: Result<Bool, GpuError> {
+        let closed = this.close()
+        if closed.isErr() { return closed }
+        closed.releaseContainer(); this.free(); return Ok<Bool, GpuError>(true)
+    }
+}

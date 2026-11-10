@@ -1,0 +1,35 @@
+/// Shared explicit kernel-argument packing for 64-bit host launch ABIs.
+/// CUDA and HSA use the same resource pointer/count and padded uniform layout;
+/// backend-specific implicit arguments are described by their own ABI wrapper.
+import json.builder.{JsonBuilder}
+import codegen.gpu_ir_model.{GpuIrFunction}
+import typechecker.gpu_types.{gpuTypeResource}
+fun gpuAlignKernelParameter(offset: Int, alignment: Int) r: Int { return ((offset + alignment - 1) / alignment) * alignment }
+fun gpuPackedKernelParameterBytes(borrow source: GpuIrFunction, fault: Bool) r: Int {
+    var offset = 0; var index = 0
+    while index < source.parameterTypes.length() {
+        if gpuTypeResource(source.parameterTypes[index]) == 4 { offset = gpuAlignKernelParameter(offset, 16) + 16 }
+        else { offset = gpuAlignKernelParameter(offset, 8) + 8; offset = gpuAlignKernelParameter(offset, 4) + 4 }; index = index + 1
+    }; if fault { offset = gpuAlignKernelParameter(offset, 8) + 8 }; return offset
+}
+fun gpuWriteKernelParameter(builder: JsonBuilder, index: Int, binding: Int, kind: String, offset: Int, bytes: Int, alignment: Int) r: Void {
+    builder.startObject(); builder.intProp("index", index); builder.intProp("binding", binding); builder.stringProp("kind", kind)
+    builder.intProp("offset", offset); builder.intProp("bytes", bytes); builder.intProp("alignment", alignment); builder.endObject()
+}
+fun gpuReflectionPackedKernelAbi(builder: JsonBuilder, borrow source: GpuIrFunction, fault: Bool, abi: String) r: Void {
+    builder.stringProp("parameter_abi", abi); builder.intProp("packed_parameter_bytes", gpuPackedKernelParameterBytes(source, fault))
+    builder.key("parameters"); builder.startArray(); var physical = 0; var offset = 0; var binding = 0
+    while binding < source.parameterTypes.length() {
+        if gpuTypeResource(source.parameterTypes[binding]) == 4 {
+            offset = gpuAlignKernelParameter(offset, 16); gpuWriteKernelParameter(builder, physical, binding, "uniform_value", offset, 16, 16)
+            offset = offset + 16; physical = physical + 1
+        } else {
+            offset = gpuAlignKernelParameter(offset, 8); gpuWriteKernelParameter(builder, physical, binding, "storage_address", offset, 8, 8)
+            offset = offset + 8; physical = physical + 1
+            offset = gpuAlignKernelParameter(offset, 4); gpuWriteKernelParameter(builder, physical, binding, "storage_length", offset, 4, 4)
+            offset = offset + 4; physical = physical + 1
+        }; binding = binding + 1
+    }
+    if fault { offset = gpuAlignKernelParameter(offset, 8); gpuWriteKernelParameter(builder, physical, binding, "fault_address", offset, 8, 8); physical = physical + 1 }
+    builder.endArray(); builder.intProp("parameter_count", physical)
+}

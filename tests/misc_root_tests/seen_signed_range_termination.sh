@@ -11,6 +11,7 @@ fi
 bash "$CAPPED_ENTRY" --verify-active "$SCOPE" --compiler "$COMPILER"
 COMPILER="${SEEN_CAPPED_REGRESSION_COMPILER:-$COMPILER}"
 ATTESTED_SEEN="${SEEN_ATTESTED_COMPILER_RUNNER:?}"
+
 WORK_DIR="$(mktemp -d "$SEEN_ARTIFACT_ROOT/signed-range.XXXXXX")"
 
 cleanup() {

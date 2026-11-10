@@ -1,0 +1,53 @@
+/// seen-ptx-kernel-v1: storage expands to (u64 address, u32 element count),
+/// uniforms pass a 16-byte aligned value block, and the optional fault address
+/// follows logical resources. These are host-call parameters, not descriptors.
+import codegen.gpu_ir_model.{GpuIrFunction}
+import codegen.gpu.ptx_text.{GpuPtxText}
+import codegen.gpu.ptx_context.{GpuPtxFunction, GpuPtxResource}
+import typechecker.gpu_types.{gpuTypeResource, gpuTypeValue, gpuTypeLanes}
+fun ptxParameterName(text: GpuPtxText, index: Int, suffix: String) r: Void {
+    text.literal("$seen_arg"); text.number(index); text.literal(suffix)
+}
+fun ptxKernelParameterCount(borrow source: GpuIrFunction, fault: Bool) r: Int {
+    var count = 0; var i = 0
+    while i < source.parameterTypes.length() {
+        if gpuTypeResource(source.parameterTypes[i]) == 4 { count = count + 1 } else { count = count + 2 }; i = i + 1
+    }; if fault { count = count + 1 }; return count
+}
+fun ptxEntryParameters(text: GpuPtxText, borrow source: GpuIrFunction, fault: Bool) r: Void {
+    var index = 0
+    while index < source.parameterTypes.length() {
+        if index > 0 { text.literal(",\n") }
+        if gpuTypeResource(source.parameterTypes[index]) == 4 {
+            text.literal(".param .align 16 .b8 "); ptxParameterName(text, index, "_value"); text.literal("[16]")
+        } else {
+            text.literal(".param .u64 "); ptxParameterName(text, index, "_address"); text.literal(",\n.param .u32 ")
+            ptxParameterName(text, index, "_length")
+        }; index = index + 1
+    }
+    if fault { if index > 0 { text.literal(",\n") }; text.literal(".param .u64 $seen_fault") }
+}
+fun ptxLoadEntryResource(function: GpuPtxFunction, typeCode: Int, index: Int) r: Int {
+    let text = function.initializers; var address = 0; var length = 0; var uniform = 0
+    if gpuTypeResource(typeCode) == 4 {
+        let lanes = gpuTypeLanes(typeCode); uniform = function.allocate(0, lanes); var lane = 0
+        while lane < lanes {
+            text.literal("ld.param.u32 "); text.reg("r", uniform + lane); text.literal(", [")
+            ptxParameterName(text, index, "_value"); text.literal("+"); text.number(lane * 4); text.literal("];\n"); lane = lane + 1
+        }
+        if gpuTypeValue(typeCode) == 1 {
+            let predicate = function.allocate(2, 1); let zero = function.word(0); let one = function.word(1)
+            text.predicate("setp.ne.u32", predicate, uniform, zero); text.select(uniform, one, zero, predicate)
+        }
+    } else {
+        address = function.allocate(1, 1); length = function.allocate(0, 1)
+        text.literal("ld.param.u64 "); text.reg("a", address); text.literal(", ["); ptxParameterName(text, index, "_address"); text.literal("];\n")
+        text.literal("ld.param.u32 "); text.reg("r", length); text.literal(", ["); ptxParameterName(text, index, "_length"); text.literal("];\n")
+    }
+    return function.addResource(GpuPtxResource{typeCode: typeCode, address: address, length: length, uniformBase: uniform, shared: false})
+}
+fun ptxLoadFaultParameter(function: GpuPtxFunction) r: Void {
+    function.faultAddress = function.allocate(1, 1)
+    function.initializers.literal("ld.param.u64 "); function.initializers.reg("a", function.faultAddress)
+    function.initializers.literal(", [$seen_fault];\n")
+}

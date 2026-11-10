@@ -53,7 +53,9 @@ def valid_path(value: object) -> bool:
         isinstance(value, str)
         and 0 < len(value) <= 256
         and not value.startswith("/")
-        and ".." not in Path(value).parts
+        # A parent component necessarily contains ".."; retain the platform's
+        # full path semantics only when that component can actually occur.
+        and (".." not in value or ".." not in Path(value).parts)
         and value.endswith(".seen")
     )
 

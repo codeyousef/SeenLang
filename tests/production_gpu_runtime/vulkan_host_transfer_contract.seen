@@ -1,0 +1,114 @@
+import compute.vulkan_host_transfer.{gpuVkHostTransfer}
+import compute.vulkan_provider.{GpuVulkanProvider, openVulkanDevice}
+import compute.vulkan_mapping.{GpuVulkanMappedRegion, gpuVkMapBuffer}
+import compute.buffer.{GpuBuffer}
+import compute.allocator.{GpuAllocator}
+import compute.memory_kind.{GpuMemoryKind}
+import compute.device_info.{GpuDeviceKind}
+import compute.limits.{GpuLimits}
+import compute.error.{GpuError}
+import core.result.{Result}
+import core.operation_context.{OperationContext}
+import provider_fixture_support.{completed}
+import device_fixture_support.{operation, releaseOperation}
+import env.env.{args, releaseArgs, set}
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_sync_live_atomics() r: UInt64
+extern "C" fun seen_time_monotonic_nanos() r: Int64
+
+fun hostTransferTake<T>(result: Result<T, GpuError>) r: T {
+    if result.isErr() { let error = result.unwrapErr(); println(error.code); println(error.operation); println(error.message); abort("native host transfer contract failed") }
+    let value = result.unwrap(); result.releaseContainer(); return value
+}
+fun hostTransferReject(result: Result<UInt64, GpuError>, code: String) r: Void {
+    if result.isOkay() { abort("invalid host transfer succeeded") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    if error.code != code or error.progress != (0 as UInt64) { abort("host transfer lost typed pre-admission failure") }; error.release()
+}
+fun hostTransferSelect(borrow provider: GpuVulkanProvider, hardware: Bool) r: Int {
+    var i = 0
+    while i < provider.catalog.devices.length() { let info = provider.catalog.devices[i]
+        if hardware { if info.kind == GpuDeviceKind.Discrete and info.name.contains("RTX 4090") { return i } }
+        else { if info.kind == GpuDeviceKind.Software { return i } }; i = i + 1
+    }
+    abort("explicit host transfer device unavailable; no fallback"); return -1
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let atomics = seen_sync_live_atomics(); let arguments = args()
+    if arguments.length() < 2 or arguments.length() > 3 { abort("requires explicit device class and optional --faults") }
+    let faults = arguments.length() == 3
+    if faults and arguments[2] != "--faults" { abort("unknown host transfer fault mode") }
+    let hardware = arguments[1] == "rtx4090"
+    if not hardware and arguments[1] != "software-reference" { abort("unknown host transfer device class") }
+    let op = operation(); let limits = GpuLimits.bounded(8, 4, 128, 2097152 as UInt64)
+    // Two independently discovered/opened native devices, not two aliases of a context.
+    let sourceProvider = hostTransferTake<GpuVulkanProvider>(GpuVulkanProvider.discover(op, limits, not hardware))
+    let sourceIndex = hostTransferSelect(sourceProvider, hardware)
+    let sourceDevice = hostTransferTake(openVulkanDevice(sourceProvider, sourceIndex, op))
+    let destinationProvider = hostTransferTake<GpuVulkanProvider>(GpuVulkanProvider.discover(op, limits, not hardware))
+    let destinationIndex = hostTransferSelect(destinationProvider, hardware)
+    let destinationDevice = hostTransferTake(openVulkanDevice(destinationProvider, destinationIndex, op))
+    let sourceContext = hostTransferTake(sourceDevice.createContext(op)); let destinationContext = hostTransferTake(destinationDevice.createContext(op))
+    let sourceAllocator = hostTransferTake<GpuAllocator>(GpuAllocator.create(sourceContext, GpuMemoryKind.HostCoherent, 262144 as UInt64, 2, op))
+    let destinationAllocator = hostTransferTake<GpuAllocator>(GpuAllocator.create(destinationContext, GpuMemoryKind.HostCoherent, 262144 as UInt64, 2, op))
+    let source = hostTransferTake<GpuBuffer<UInt8>>(GpuBuffer<UInt8>.allocate(sourceAllocator, 131113 as UInt64, 1 as UInt64, 64 as UInt64, op))
+    let destination = hostTransferTake<GpuBuffer<UInt8>>(GpuBuffer<UInt8>.allocate(destinationAllocator, 131113 as UInt64, 1 as UInt64, 64 as UInt64, op))
+    let sourceMap = hostTransferTake<GpuVulkanMappedRegion>(gpuVkMapBuffer(source, 0 as UInt64, 131113 as UInt64, true, op))
+    let destinationMap = hostTransferTake<GpuVulkanMappedRegion>(gpuVkMapBuffer(destination, 0 as UInt64, 131113 as UInt64, true, op))
+    let input = sourceMap.address as *UInt8; let output = destinationMap.address as *UInt8; var i = 0
+    while i < 131113 { input[i] = ((i * 29 + 193) % 256) as UInt8; output[i] = 173 as UInt8; i = i + 1 }
+    hostTransferReject(gpuVkHostTransfer(destinationMap, 0 as UInt64, sourceMap, 0 as UInt64, 0 as UInt64, op), "gpu.invalid")
+    hostTransferReject(gpuVkHostTransfer(destinationMap, 18446744073709551615 as UInt64, sourceMap, 0 as UInt64, 8 as UInt64, op), "gpu.invalid")
+    hostTransferReject(gpuVkHostTransfer(destinationMap, 0 as UInt64, sourceMap, 131112 as UInt64, 8 as UInt64, op), "gpu.invalid")
+    hostTransferReject(gpuVkHostTransfer(destinationMap, 0 as UInt64, sourceMap, 0 as UInt64, 16777217 as UInt64, op), "gpu.invalid")
+    hostTransferReject(gpuVkHostTransfer(sourceMap, 0 as UInt64, sourceMap, 1 as UInt64, 8 as UInt64, op), "gpu.invalid")
+    op.cancellation = true
+    hostTransferReject(gpuVkHostTransfer(destinationMap, 13 as UInt64, sourceMap, 7 as UInt64, 131077 as UInt64, op), "gpu.cancelled"); op.cancellation = false
+    op.monotonicDeadline = -1 as Int64
+    hostTransferReject(gpuVkHostTransfer(destinationMap, 13 as UInt64, sourceMap, 7 as UInt64, 131077 as UInt64, op), "gpu.timeout"); op.monotonicDeadline = 9223372036854775807 as Int64
+    i = 0; while i < 131113 { if output[i] != (173 as UInt8) { abort("rejected transfer modified destination") }; i = i + 1 }
+    if faults {
+        op.monotonicDeadline = seen_time_monotonic_nanos() + (60000000000 as Int64)
+        set("SEEN_VULKAN_FIXTURE_FAULT", "host-transfer-expire-after-chunk")
+        let interrupted = gpuVkHostTransfer(destinationMap, 13 as UInt64, sourceMap, 7 as UInt64, 131077 as UInt64, op)
+        set("SEEN_VULKAN_FIXTURE_FAULT", ""); op.monotonicDeadline = 9223372036854775807 as Int64
+        if interrupted.isOkay() { abort("injected chunk deadline was not observed") }
+        let error = interrupted.unwrapErr(); interrupted.releaseContainer()
+        if error.code != "gpu.timeout" or error.progress != (65536 as UInt64) { abort("partial host transfer lost exact written-prefix progress") }; error.release()
+        if not sourceMap.valid() or not destinationMap.valid() { abort("partial host transfer consumed borrowed mappings") }
+        i = 0; while i < 131113 {
+            var expected = 173
+            if i >= 13 and i < 65549 { expected = ((i - 13 + 7) * 29 + 193) % 256 }
+            if output[i] != (expected as UInt8) { abort("interrupted host transfer corrupted its exact prefix or suffix canary") }; i = i + 1
+        }
+    }
+    var round = 0
+    while round < 17 {
+        i = 0; while i < 131113 { input[i] = ((i * 29 + 193 + round * 17) % 256) as UInt8; i = i + 1 }
+        let before = seen_memory_used_bytes()
+        if hostTransferTake<UInt64>(gpuVkHostTransfer(destinationMap, 13 as UInt64, sourceMap, 7 as UInt64, 131077 as UInt64, op)) != (131077 as UInt64) { abort("transport lost exact successful byte progress") }
+        if seen_memory_used_bytes() != before { abort("host transport retained per-operation metadata") }
+        i = 0; while i < 131113 {
+            var expected = 173
+            if i >= 13 and i < 131090 { expected = ((i - 13 + 7) * 29 + 193 + round * 17) % 256 }
+            if output[i] != (expected as UInt8) { abort("cross-device byte oracle or canary differs") }; i = i + 1
+        }; round = round + 1
+    }
+    completed(destinationMap.release(), true)
+    let readOnly = hostTransferTake<GpuVulkanMappedRegion>(gpuVkMapBuffer(destination, 0 as UInt64, 131113 as UInt64, false, op))
+    hostTransferReject(gpuVkHostTransfer(readOnly, 0 as UInt64, sourceMap, 0 as UInt64, 8 as UInt64, op), "gpu.invalid")
+    completed(sourceMap.close(), true)
+    hostTransferReject(gpuVkHostTransfer(readOnly, 0 as UInt64, sourceMap, 0 as UInt64, 8 as UInt64, op), "gpu.invalid")
+    completed(sourceMap.release(), true); completed(source.release(), true); completed(sourceAllocator.release(), true)
+    completed(sourceContext.release(), true); completed(sourceDevice.release(), true)
+    // Shutting down the source must not invalidate the independent destination.
+    if not readOnly.valid() { abort("source shutdown invalidated another native device") }
+    let retained = readOnly.address as *const UInt8; i = 0
+    while i < 131113 { var expected = 173; if i >= 13 and i < 131090 { expected = ((i - 13 + 7) * 29 + 193 + 16 * 17) % 256 }; if retained[i] != (expected as UInt8) { abort("source shutdown corrupted destination") }; i = i + 1 }
+    completed(readOnly.release(), true); completed(destination.release(), true); completed(destinationAllocator.release(), true)
+    completed(destinationContext.release(), true); completed(destinationDevice.release(), true)
+    limits.free(); releaseOperation(op); releaseArgs(arguments)
+    if seen_memory_used_bytes() != baseline or seen_sync_live_atomics() != atomics { abort("host transfer owner inventory did not drain") }
+    println("PASS: explicit host transport across two logical native devices, byte canaries, rejection, cancellation and isolated shutdown; no physical multi-GPU certification")
+    return 0
+}

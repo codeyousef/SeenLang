@@ -1,0 +1,59 @@
+/// Opaque subgroup fragments have a closed shape, precision and role. They are
+/// SSA values, never pointers or bindable resources. Accumulators retain their
+/// explicit FP32/INT32/UINT32 precision rather than inheriting input precision.
+import codegen.gpu_precision_formats.{gpuPrecisionValid, gpuPrecisionValueType, gpuPrecisionCapabilities,
+    GPU_FORMAT_FP32, GPU_FORMAT_FP16, GPU_FORMAT_BF16, GPU_FORMAT_INT8, GPU_FORMAT_UINT8,
+    GPU_FORMAT_INT4, GPU_FORMAT_UINT4, GPU_FORMAT_INT2, GPU_FORMAT_UINT2, GPU_FORMAT_FP8_E4M3FN,
+    GPU_FORMAT_MXFP4, GPU_FORMAT_INT32, GPU_FORMAT_UINT32, GPU_CAP_COOPERATIVE,
+    GPU_CAP_COOP_FP16, GPU_CAP_COOP_BF16, GPU_CAP_COOP_INT8, GPU_CAP_COOP_INT4,
+    GPU_CAP_COOP_INT2, GPU_CAP_COOP_FP8, GPU_CAP_COOP_MXFP4, GPU_CAP_COOP_FP32}
+
+fun gpuMatrixShapeValid(shape: Int) r: Bool { return shape >= 0 and shape <= 3 }
+fun gpuMatrixM(shape: Int) r: Int { if not gpuMatrixShapeValid(shape) { return 0 }; if shape == 2 { return 8 }; return 16 }
+fun gpuMatrixN(shape: Int) r: Int { if not gpuMatrixShapeValid(shape) { return 0 }; if shape == 1 or shape == 2 { return 8 }; return 16 }
+fun gpuMatrixK(shape: Int) r: Int { if not gpuMatrixShapeValid(shape) { return 0 }; if shape == 2 { return 8 }; if shape == 3 { return 32 }; return 16 }
+fun gpuMatrixInputFormatValid(format: Int) r: Bool {
+    return gpuPrecisionValid(format) and format != GPU_FORMAT_INT32 and format != GPU_FORMAT_UINT32
+}
+fun gpuMatrixType(shape: Int, format: Int, role: Int) r: Int {
+    if not gpuMatrixShapeValid(shape) or not gpuPrecisionValid(format) or role < 0 or role > 2 { return 0 }
+    if role == 2 {
+        if format != GPU_FORMAT_FP32 and format != GPU_FORMAT_INT32 and format != GPU_FORMAT_UINT32 { return 0 }
+    } else if not gpuMatrixInputFormatValid(format) { return 0 }
+    return 6000 + shape * 256 + format * 4 + role
+}
+fun gpuMatrixTypeValid(typeCode: Int) r: Bool {
+    if typeCode < 6000 or typeCode >= 7024 { return false }
+    let payload = typeCode - 6000; let shape = payload / 256; let format = (payload % 256) / 4; let role = payload % 4
+    return gpuMatrixType(shape, format, role) == typeCode
+}
+fun gpuMatrixShape(typeCode: Int) r: Int { return (typeCode - 6000) / 256 }
+fun gpuMatrixFormat(typeCode: Int) r: Int { return ((typeCode - 6000) % 256) / 4 }
+fun gpuMatrixRole(typeCode: Int) r: Int { return (typeCode - 6000) % 4 }
+fun gpuMatrixAccumulatorFormat(input: Int) r: Int {
+    let valueType = gpuPrecisionValueType(input)
+    if valueType == 2 { return GPU_FORMAT_INT32 }; if valueType == 3 { return GPU_FORMAT_UINT32 }
+    if valueType == 4 { return GPU_FORMAT_FP32 }; return 0
+}
+fun gpuMatrixRows(typeCode: Int) r: Int {
+    if not gpuMatrixTypeValid(typeCode) { return 0 }
+    if gpuMatrixRole(typeCode) == 1 { return gpuMatrixK(gpuMatrixShape(typeCode)) }; return gpuMatrixM(gpuMatrixShape(typeCode))
+}
+fun gpuMatrixColumns(typeCode: Int) r: Int {
+    if not gpuMatrixTypeValid(typeCode) { return 0 }
+    if gpuMatrixRole(typeCode) == 0 { return gpuMatrixK(gpuMatrixShape(typeCode)) }; return gpuMatrixN(gpuMatrixShape(typeCode))
+}
+fun gpuMatrixCapabilities(typeCode: Int) r: UInt64 {
+    if not gpuMatrixTypeValid(typeCode) { return 0 as UInt64 }
+    let format = gpuMatrixFormat(typeCode)
+    let common = GPU_CAP_COOPERATIVE | (32 as UInt64) | gpuPrecisionCapabilities(format)
+    if gpuMatrixRole(typeCode) == 2 { return common }
+    if format == GPU_FORMAT_FP32 { return common | GPU_CAP_COOP_FP32 }
+    if format == GPU_FORMAT_FP16 { return common | GPU_CAP_COOP_FP16 }
+    if format == GPU_FORMAT_BF16 { return common | GPU_CAP_COOP_BF16 }
+    if format == GPU_FORMAT_INT8 or format == GPU_FORMAT_UINT8 { return common | GPU_CAP_COOP_INT8 }
+    if format == GPU_FORMAT_INT4 or format == GPU_FORMAT_UINT4 { return common | GPU_CAP_COOP_INT4 }
+    if format == GPU_FORMAT_INT2 or format == GPU_FORMAT_UINT2 { return common | GPU_CAP_COOP_INT2 }
+    if format == GPU_FORMAT_FP8_E4M3FN { return common | GPU_CAP_COOP_FP8 }
+    if format == GPU_FORMAT_MXFP4 { return common | GPU_CAP_COOP_MXFP4 }; return 0 as UInt64
+}

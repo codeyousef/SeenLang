@@ -1,0 +1,37 @@
+// Process-specific input validation. Packed ownership is shared with task diagnostics.
+fun validProcessProgram(program: String) r: Bool {
+    if program.length() <= 1 or program.length() > 4095 or program.byteAt(0) != 47 { return false }
+    var start = 1; var i = 1
+    while i <= program.length() {
+        if i == program.length() or program.byteAt(i) == 47 {
+            let count = i - start
+            if count == 0 { return false }
+            if count == 1 and program.byteAt(start) == 46 { return false }
+            if count == 2 and program.byteAt(start) == 46 and program.byteAt(start + 1) == 46 { return false }
+            start = i + 1
+        } else {
+            if program.byteAt(i) == 0 { return false }
+        }
+        i = i + 1
+    }
+    return true
+}
+
+fun validProcessEnvironment(environment: Array<String>) r: Bool {
+    if environment.length() > 256 { return false }
+    var i = 0
+    while i < environment.length() {
+        let value = environment[i]
+        if value.length() > 65535 { return false }
+        var at = 0
+        while at < value.length() and value.byteAt(at) != 61 {
+            let code = value.byteAt(at)
+            if not ((code >= 65 and code <= 90) or (code >= 97 and code <= 122) or
+                code == 95 or (at > 0 and code >= 48 and code <= 57)) { return false }
+            at = at + 1
+        }
+        if at == 0 or at == value.length() { return false }
+        i = i + 1
+    }
+    return true
+}

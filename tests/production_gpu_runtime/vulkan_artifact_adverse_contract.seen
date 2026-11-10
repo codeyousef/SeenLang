@@ -1,0 +1,411 @@
+import compute.vulkan_pipeline_artifact.{GpuVulkanArtifact}
+import env.env.{args, releaseArgs}
+import io.file.{readText, size}
+import memory.aligned_buffer.{OwnedBuffer}
+import json.strict.{parseStrictJson, StrictJsonLimits}
+import json.parser.{JsonParseResult, destroyJsonParseResult}
+import json.value.{JsonValue, JsonValue_number, JsonValue_bool, JsonValue_string, JsonValue_emptyArray}
+import json.builder.{jsonToString, seen_string_clone_owned, seen_string_release_owned}
+extern "C" fun seen_string_view_bytes(data: *const UInt8, length: Int64) r: String
+extern "C" fun seen_memory_used_bytes() r: Int64
+
+// Every parser invocation owns its result, diagnostic and artifact independently
+// of the borrowed input strings. Check the native allocation counter per call,
+// as well as around repeated construction/destruction of the mutations.
+fun adverseReject(binary: String, reflection: String, entry: String, operation: String) r: Void {
+    let baseline = seen_memory_used_bytes()
+    let result = GpuVulkanArtifact.parse(binary, reflection, entry)
+    if result.isOkay() { result.unwrap().release(); result.releaseContainer(); abort("adverse artifact was admitted") }
+    let error = result.unwrapErr(); result.releaseContainer()
+    // Unsupported physical encodings may be rejected locally or by the full
+    // official validator. Pin the public error, not which validator found it.
+    let located = error.operation == operation or (operation == "gpu.vulkan.artifact.physical" and error.operation == "gpu.vulkan.artifact.conformance")
+    if error.code != "gpu.unsupported_abi" or not located or error.retryable or error.progress != (0 as UInt64) {
+        println(error.code); println(error.operation); println(operation); abort("artifact failure lost its typed admission boundary")
+    }
+    error.release()
+    if seen_memory_used_bytes() != baseline { abort("artifact rejection retained native owned bytes") }
+}
+fun adverseAccept(binary: String, reflection: String, entry: String, count: Int, groups: Int, shared: Int) r: Void {
+    let baseline = seen_memory_used_bytes()
+    let result = GpuVulkanArtifact.parse(binary, reflection, entry)
+    if result.isErr() { println(result.unwrapErr().code); println(result.unwrapErr().operation); abort("supported artifact boundary was rejected") }
+    let artifact = result.unwrap(); result.releaseContainer()
+    if artifact.entry != entry or artifact.bindings.length() != count or artifact.groups != groups or artifact.sharedBytes != shared or artifact.identity.length() == 0 {
+        abort("supported artifact metadata changed")
+    }
+    artifact.release()
+    if seen_memory_used_bytes() != baseline { abort("artifact success retained native owned bytes") }
+}
+fun adverseJson(text: String) r: JsonParseResult {
+    let limits = StrictJsonLimits{maxInputBytes: 4194304, maxDepth: 16, maxValues: 65536, maxStringBytes: 4096}
+    let result = parseStrictJson(text, limits); limits.free()
+    if result.isErr() { abort("fixture JSON construction failed") }
+    let tree = result.unwrap(); result.releaseContainer()
+    if tree.value == null { abort("fixture JSON root missing") }; return tree
+}
+fun adverseField(value: JsonValue, key: String) r: JsonValue {
+    let box = value.get(key); if box == null { abort("actual reflection field missing") }
+    let child = box.unwrap(); box.free(); return child
+}
+fun adverseAt(value: JsonValue, index: Int) r: JsonValue {
+    let box = value.getAt(index); if box == null { abort("actual reflection array element missing") }
+    let child = box.unwrap(); box.free(); return child
+}
+fun adverseEntry(root: JsonValue, name: String) r: JsonValue {
+    let entries = adverseField(root, "entries"); var i = 0
+    while i < entries.length() {
+        let entry = adverseAt(entries, i)
+        if adverseField(entry, "name").getString() == name { return entry }; i = i + 1
+    }; abort("actual reflection entry missing")
+}
+// index -2 selects the document, -1 an entry, otherwise a descriptor.
+// Preserve raw numeric tokens: jsonToString currently narrows numbers to Int.
+// The sentinel is a detached, borrowed-literal string node owned by the tree.
+fun adverseChange(reflection: String, entry: String, index: Int, key: String, value: String) r: String {
+    let tree = adverseJson(reflection); let root = tree.value.unwrap(); var target = root
+    if index != -2 { target = adverseEntry(root, entry) }
+    if index >= 0 { target = adverseAt(adverseField(target, "bindings"), index) }
+    target.set(key, JsonValue_string("__seen_artifact_adverse_value__"))
+    let skeleton = jsonToString(root); destroyJsonParseResult(tree, true)
+    let output = adverseReplace(skeleton, "\"__seen_artifact_adverse_value__\"", value)
+    seen_string_release_owned(skeleton); return output
+}
+fun adverseJsonReject(binary: String, reflection: String, index: Int, key: String, value: String, operation: String) r: Void {
+    let changed = adverseChange(reflection, "foundation", index, key, value)
+    adverseReject(binary, changed, "foundation", operation); seen_string_release_owned(changed)
+}
+fun adverseReplace(text: String, before: String, after: String) r: String {
+    if before.length() == 0 or text.length() > 4194304 { abort("fixture replacement bounds invalid") }
+    var i = 0
+    while i <= text.length() - before.length() {
+        var equal = true; var j = 0
+        while j < before.length() { if text.byteAt(i + j) != before.byteAt(j) { equal = false }; j = j + 1 }
+        if equal {
+            let first = text.substring(0, i); let last = text.substring(i + before.length(), text.length())
+            let partial = first + after; let output = partial + last
+            seen_string_release_owned(first); seen_string_release_owned(last); seen_string_release_owned(partial); return output
+        }; i = i + 1
+    }; abort("actual reflection replacement anchor missing")
+}
+fun adverseWord(binary: String, index: Int) r: Int {
+    if index < 0 or index >= binary.length() / 4 { abort("fixture SPIR-V read outside words") }
+    let offset = index * 4
+    return binary.byteAt(offset) | (binary.byteAt(offset + 1) << 8) | (binary.byteAt(offset + 2) << 16) | (binary.byteAt(offset + 3) << 24)
+}
+fun adverseBinary(words: Array<Int>) r: String {
+    if words.length() < 1 or words.length() > 8388608 { abort("fixture SPIR-V output bounds invalid") }
+    let allocated = OwnedBuffer<UInt8>.allocate((words.length() * 4) as UInt64, 1 as UInt64, 16 as UInt64)
+    if allocated.isErr() { abort("fixture word allocation failed") }
+    let buffer = allocated.unwrap(); allocated.releaseContainer(); var i = 0
+    while i < words.length() {
+        var byte = 0; while byte < 4 { buffer.data[i * 4 + byte] = ((words[i] >> (byte * 8)) & 255) as UInt8; byte = byte + 1 }; i = i + 1
+    }
+    let output = seen_string_clone_owned(seen_string_view_bytes(buffer.data as *const UInt8, (words.length() * 4) as Int64))
+    buffer.close(); buffer.free(); return output
+}
+fun adverseSetWord(binary: String, index: Int, value: Int) r: String {
+    if index < 0 or index >= binary.length() / 4 { abort("fixture SPIR-V write outside words") }
+    let words = Array<Int>(); var i = 0
+    while i < binary.length() / 4 { if i == index { words.push(value) } else { words.push(adverseWord(binary, i)) }; i = i + 1 }
+    let output = adverseBinary(words); words.free(); return output
+}
+fun adverseWordReject(binary: String, reflection: String, index: Int, value: Int, operation: String) r: Void {
+    let changed = adverseSetWord(binary, index, value)
+    adverseReject(changed, reflection, "foundation", operation); seen_string_release_owned(changed)
+}
+fun adverseFind(binary: String, opcode: Int, id: Int) r: Int {
+    var offset = 5
+    while offset < binary.length() / 4 {
+        let instruction = adverseWord(binary, offset); let count = instruction >> 16
+        if count < 1 or count > binary.length() / 4 - offset { abort("actual SPIR-V instruction bounds invalid") }
+        if (instruction & 65535) == opcode {
+            var operand = 1; if opcode == 59 or opcode == 54 { operand = 2 }
+            if id == -1 or (count > operand and adverseWord(binary, offset + operand) == id) { return offset }
+        }; offset = offset + count
+    }; abort("actual SPIR-V declaration missing")
+}
+fun adverseEntryOffset(binary: String, name: String) r: Int {
+    var offset = 5
+    while offset < binary.length() / 4 {
+        let instruction = adverseWord(binary, offset); let count = instruction >> 16
+        if count < 1 or count > binary.length() / 4 - offset { abort("actual SPIR-V entry scan bounds invalid") }
+        if (instruction & 65535) == 15 and count >= 4 {
+            let start = (offset + 3) * 4; let end = (offset + count) * 4; var equal = start + name.length() < end; var i = 0
+            while equal and i < name.length() { if binary.byteAt(start + i) != name.byteAt(i) { equal = false }; i = i + 1 }
+            if equal and binary.byteAt(start + name.length()) == 0 { return offset }
+        }; offset = offset + count
+    }; abort("actual SPIR-V entry missing")
+}
+fun adverseDecoration(binary: String, id: Int, decoration: Int) r: Int {
+    var offset = 5
+    while offset < binary.length() / 4 {
+        let instruction = adverseWord(binary, offset); let count = instruction >> 16
+        if count < 1 or count > binary.length() / 4 - offset { abort("actual decoration bounds invalid") }
+        if (instruction & 65535) == 71 and count >= 3 and adverseWord(binary, offset + 1) == id and adverseWord(binary, offset + 2) == decoration { return offset }
+        offset = offset + count
+    }; abort("actual SPIR-V decoration missing")
+}
+fun adverseDescriptor(binary: String, name: String, binding: Int) r: Int {
+    let entry = adverseEntryOffset(binary, name); let count = adverseWord(binary, entry) >> 16
+    var end = (entry + 3) * 4; while end < (entry + count) * 4 and binary.byteAt(end) != 0 { end = end + 1 }
+    var operand = (end + 4) / 4
+    while operand < entry + count {
+        let id = adverseWord(binary, operand); var offset = 5
+        while offset < binary.length() / 4 {
+            let instruction = adverseWord(binary, offset); let size = instruction >> 16
+            if size < 1 or size > binary.length() / 4 - offset { abort("actual descriptor scan bounds invalid") }
+            if (instruction & 65535) == 71 and size == 4 and adverseWord(binary, offset + 1) == id and adverseWord(binary, offset + 2) == 33 and adverseWord(binary, offset + 3) == binding { return id }
+            offset = offset + size
+        }; operand = operand + 1
+    }; abort("actual selected descriptor missing")
+}
+fun adverseRename(binary: String, previous: String, name: String) r: String {
+    if name.length() < 1 or name.length() > 128 { abort("fixture entry name bounds invalid") }
+    let entry = adverseEntryOffset(binary, previous); let count = adverseWord(binary, entry) >> 16
+    var end = (entry + 3) * 4; while binary.byteAt(end) != 0 { end = end + 1 }
+    let firstInterface = (end + 4) / 4; let nameWords = (name.length() + 4) / 4
+    let words = Array<Int>(); var i = 0
+    while i < binary.length() / 4 {
+        if i == entry {
+            words.push(((3 + nameWords + entry + count - firstInterface) << 16) | 15)
+            words.push(adverseWord(binary, entry + 1)); words.push(adverseWord(binary, entry + 2))
+            var n = 0; while n < nameWords {
+                var word = 0; var b = 0
+                while b < 4 { let at = n * 4 + b; if at < name.length() { word = word | (name.byteAt(at) << (b * 8)) }; b = b + 1 }
+                words.push(word); n = n + 1
+            }
+            var operandIndex = firstInterface; while operandIndex < entry + count { words.push(adverseWord(binary, operandIndex)); operandIndex = operandIndex + 1 }
+            i = entry + count
+        } else { words.push(adverseWord(binary, i)); i = i + 1 }
+    }
+    let output = adverseBinary(words); words.free(); return output
+}
+fun adverseName(length: Int) r: String {
+    let allocated = OwnedBuffer<UInt8>.allocate(length as UInt64, 1 as UInt64, 16 as UInt64)
+    if allocated.isErr() { abort("fixture name allocation failed") }
+    let buffer = allocated.unwrap(); allocated.releaseContainer(); var i = 0
+    while i < length { buffer.data[i] = 97 as UInt8; i = i + 1 }
+    let output = seen_string_clone_owned(seen_string_view_bytes(buffer.data as *const UInt8, length as Int64))
+    buffer.close(); buffer.free(); return output
+}
+fun adverseAdmission(binary: String, reflection: String) r: Void {
+    adverseReject(binary, reflection, "", "gpu.vulkan.artifact")
+    let longName = adverseName(129); adverseReject(binary, reflection, longName, "gpu.vulkan.artifact"); seen_string_release_owned(longName)
+    let shortBinary = binary.substring(0, 19); adverseReject(shortBinary, reflection, "foundation", "gpu.vulkan.artifact"); seen_string_release_owned(shortBinary)
+    let header = binary.substring(0, 20); adverseReject(header, reflection, "foundation", "gpu.vulkan.artifact.physical"); seen_string_release_owned(header)
+    // These views are borrowed from initialized buffers; the admission guard
+    // must reject their lengths before JSON, hashing or physical decoding.
+    let lengths = [33554436, 4194305]; var i = 0
+    while i < lengths.length() {
+        let allocated = OwnedBuffer<UInt8>.allocate(lengths[i] as UInt64, 1 as UInt64, 16 as UInt64)
+        if allocated.isErr() { abort("fixture admission allocation failed") }
+        let buffer = allocated.unwrap(); allocated.releaseContainer(); var byte = 0
+        while byte < lengths[i] { buffer.data[byte] = 32 as UInt8; byte = byte + 1 }
+        let view = seen_string_view_bytes(buffer.data as *const UInt8, lengths[i] as Int64)
+        if i == 0 { adverseReject(view, reflection, "foundation", "gpu.vulkan.artifact") }
+        else { adverseReject(binary, view, "foundation", "gpu.vulkan.artifact") }
+        buffer.close(); buffer.free(); i = i + 1
+    }; lengths.free()
+    let names = [1, 128]; i = 0
+    while i < names.length() {
+        let name = adverseName(names[i]); let quoted = "\"" + name; let jsonName = quoted + "\""; seen_string_release_owned(quoted)
+        let changedReflection = adverseChange(reflection, "foundation", -1, "name", jsonName)
+        let changedBinary = adverseRename(binary, "foundation", name)
+        adverseAccept(changedBinary, changedReflection, name, 4, 1, 0)
+        seen_string_release_owned(changedBinary); seen_string_release_owned(changedReflection); seen_string_release_owned(jsonName); seen_string_release_owned(name); i = i + 1
+    }; names.free()
+}
+fun adverseReflectionCases(binary: String, reflection: String) r: Void {
+    let entryOperation = "gpu.vulkan.artifact.reflection"; let physicalOperation = "gpu.vulkan.artifact.physical"
+    let kinds = ["null", "false", "0", "\"entries\"", "{}"]
+    var i = 0; while i < kinds.length() {
+        adverseJsonReject(binary, reflection, -2, "entries", kinds[i], "gpu.vulkan.artifact"); i = i + 1
+    }; kinds.free()
+    adverseJsonReject(binary, reflection, -2, "schema", "true", "gpu.vulkan.artifact")
+    adverseJsonReject(binary, reflection, -2, "entries", "[]", entryOperation)
+    let workgroups = ["null", "{}", "[8,1]", "[8,1,1,1]", "[8,null,1]", "[8,0,1]", "[8,1025,1]", "[8,1.5,1]", "[8,1e100,1]"]
+    i = 0; while i < workgroups.length() { adverseJsonReject(binary, reflection, -1, "workgroup", workgroups[i], entryOperation); i = i + 1 }; workgroups.free()
+    let missing = adverseReplace(reflection, "\"workgroup\":", "\"ignored_workgroup\":")
+    adverseReject(binary, missing, "foundation", entryOperation); adverseAccept(binary, missing, "increment", 2, 1, 0); seen_string_release_owned(missing)
+    adverseJsonReject(binary, reflection, -1, "bindings", "null", entryOperation)
+    adverseJsonReject(binary, reflection, -1, "requires_fault_buffer", "1", entryOperation)
+    let numericKinds = ["null", "false", "\"0\"", "{}", "[]", "-1", "0.25", "4294967296"]
+    i = 0; while i < numericKinds.length() { adverseJsonReject(binary, reflection, -1, "shared_bytes", numericKinds[i], entryOperation); i = i + 1 }; numericKinds.free()
+    adverseJsonReject(binary, reflection, -1, "required_capabilities", "null", entryOperation)
+    adverseJsonReject(binary, reflection, -1, "shared_bytes", "4294967295", physicalOperation)
+    let counts = ["null", "false", "\"1\"", "0", "1.5"]
+    i = 0; while i < counts.length() { adverseJsonReject(binary, reflection, 0, "count", counts[i], entryOperation); i = i + 1 }; counts.free()
+    let keys = ["group", "group", "binding", "element_stride", "element_stride", "minimum_binding_bytes", "minimum_binding_bytes", "scalar_type", "scalar_type", "lanes", "lanes", "value_type", "type"]
+    let values = ["-1", "\"0\"", "null", "0", "65", "1", "-1", "0", "5", "0", "5", "null", "3003"]
+    i = 0; while i < keys.length() { adverseJsonReject(binary, reflection, 0, keys[i], values[i], entryOperation); i = i + 1 }; keys.free(); values.free()
+    adverseJsonReject(binary, reflection, 0, "group", "3", physicalOperation)
+    adverseJsonReject(binary, reflection, 0, "binding", "65535", physicalOperation)
+    adverseJsonReject(binary, reflection, 2, "access", "\"read_write\"", entryOperation)
+    adverseJsonReject(binary, reflection, 2, "minimum_binding_bytes", "15", entryOperation)
+    adverseJsonReject(binary, reflection, -1, "fault_binding", "null", entryOperation)
+    adverseJsonReject(binary, reflection, -1, "fault_binding", "65536", entryOperation)
+    let changed = adverseChange(reflection, "foundation", 0, "count", "1.0")
+    adverseAccept(binary, changed, "foundation", 4, 1, 0); seen_string_release_owned(changed)
+    let decimalWorkgroup = adverseChange(reflection, "foundation", -1, "workgroup", "[8.0,1e0,1]")
+    adverseAccept(binary, decimalWorkgroup, "foundation", 4, 1, 0); seen_string_release_owned(decimalWorkgroup)
+    // Uniform Bool has the supported UInt32 physical representation, unlike
+    // storage Bool. Keep type/resource/stride metadata mutually consistent.
+    let tree = adverseJson(reflection); let root = tree.value.unwrap(); let bindings = adverseField(adverseEntry(root, "foundation"), "bindings")
+    let uniform = adverseAt(bindings, 2)
+    // Replace fields rather than inserting an already-owned child into a tree.
+    uniform.set("type", JsonValue_number(4001)); uniform.set("value_type", JsonValue_number(1)); uniform.set("scalar_type", JsonValue_number(1))
+    let boolReflection = jsonToString(root); destroyJsonParseResult(tree, true)
+    adverseAccept(binary, boolReflection, "foundation", 4, 1, 0); seen_string_release_owned(boolReflection)
+    let storageTree = adverseJson(reflection); let storageRoot = storageTree.value.unwrap(); let storage = adverseAt(adverseField(adverseEntry(storageRoot, "foundation"), "bindings"), 0)
+    storage.set("type", JsonValue_number(1001)); storage.set("value_type", JsonValue_number(1)); storage.set("scalar_type", JsonValue_number(1))
+    let storageReflection = jsonToString(storageRoot); destroyJsonParseResult(storageTree, true)
+    adverseReject(binary, storageReflection, "foundation", entryOperation); seen_string_release_owned(storageReflection)
+}
+fun adverseEntryIsolation(binary: String, reflection: String) r: Void {
+    let tree = adverseJson(reflection); let root = tree.value.unwrap(); let entries = adverseField(root, "entries")
+    let selected = jsonToString(adverseEntry(root, "foundation")); let duplicate = adverseJson(selected)
+    entries.push(duplicate.value.unwrap()); destroyJsonParseResult(duplicate, false); seen_string_release_owned(selected)
+    let duplicated = jsonToString(root); destroyJsonParseResult(tree, true)
+    adverseReject(binary, duplicated, "foundation", "gpu.vulkan.artifact.reflection")
+    adverseAccept(binary, duplicated, "increment", 2, 1, 0); seen_string_release_owned(duplicated)
+    let nonentryTree = adverseJson(reflection); let nonentryRoot = nonentryTree.value.unwrap(); let ignored = adverseJson("[null,1,false,{}]")
+    let ignoredEntries = ignored.value.unwrap(); var i = 0
+    // Clone each ignored value into a detached root before transferring it.
+    while i < ignoredEntries.length() {
+        let text = jsonToString(adverseAt(ignoredEntries, i)); let clone = adverseJson(text); seen_string_release_owned(text)
+        adverseField(nonentryRoot, "entries").push(clone.value.unwrap()); destroyJsonParseResult(clone, false); i = i + 1
+    }
+    let extra = jsonToString(nonentryRoot); destroyJsonParseResult(ignored, true); destroyJsonParseResult(nonentryTree, true)
+    adverseAccept(binary, extra, "foundation", 4, 1, 0); seen_string_release_owned(extra)
+    let sizes = [0, 64, 65]; i = 0
+    while i < sizes.length() {
+        let descriptorTree = adverseJson(reflection); let descriptorRoot = descriptorTree.value.unwrap(); let entry = adverseEntry(descriptorRoot, "foundation")
+        let sample = jsonToString(adverseAt(adverseField(entry, "bindings"), 0)); let descriptors = JsonValue_emptyArray(); var j = 0
+        while j < sizes[i] {
+            let copy = adverseJson(sample); let binding = copy.value.unwrap(); binding.set("binding", JsonValue_number(j))
+            descriptors.push(binding); destroyJsonParseResult(copy, false); j = j + 1
+        }
+        seen_string_release_owned(sample); entry.set("bindings", descriptors); entry.set("requires_fault_buffer", JsonValue_bool(false)); entry.set("fault_binding", JsonValue_number(-1))
+        let changed = jsonToString(descriptorRoot); destroyJsonParseResult(descriptorTree, true)
+        var operation = "gpu.vulkan.artifact.physical"; if sizes[i] == 65 { operation = "gpu.vulkan.artifact.reflection" }
+        adverseReject(binary, changed, "foundation", operation); seen_string_release_owned(changed); i = i + 1
+    }; sizes.free()
+    let noFault = adverseChange(reflection, "foundation", -1, "requires_fault_buffer", "false")
+    adverseReject(binary, noFault, "foundation", "gpu.vulkan.artifact.reflection")
+    let falseFault = adverseChange(noFault, "foundation", -1, "fault_binding", "-1")
+    adverseReject(binary, falseFault, "foundation", "gpu.vulkan.artifact.physical"); seen_string_release_owned(falseFault); seen_string_release_owned(noFault)
+}
+fun adversePhysicalCases(binary: String, reflection: String) r: Void {
+    let operation = "gpu.vulkan.artifact.physical"
+    let versions = [65536, 66560, 67328]; var i = 0
+    while i < versions.length() { adverseWordReject(binary, reflection, 1, versions[i], operation); i = i + 1 }; versions.free()
+    let supportedVersions = [66816, 67072]; i = 0
+    while i < supportedVersions.length() {
+        let supported = adverseSetWord(binary, 1, supportedVersions[i]); adverseAccept(supported, reflection, "foundation", 4, 1, 0)
+        seen_string_release_owned(supported); i = i + 1
+    }; supportedVersions.free()
+    // Allowed, unused subgroup declarations still require genuine whole-module
+    // validation. Exercise both endpoints of the supported capability interval.
+    let capabilities = [61, 65]; i = 0
+    while i < capabilities.length() {
+        let declared = Array<Int>(); var at = 0
+        while at < binary.length() / 4 {
+            if at == 5 {
+                declared.push((2 << 16) | 17); declared.push(61)
+                if capabilities[i] != 61 { declared.push((2 << 16) | 17); declared.push(capabilities[i]) }
+            }
+            declared.push(adverseWord(binary, at)); at = at + 1
+        }
+        let supported = adverseBinary(declared); declared.free()
+        adverseAccept(supported, reflection, "foundation", 4, 1, 0); seen_string_release_owned(supported); i = i + 1
+    }; capabilities.free()
+    let bounds = [0, 1, 65537]; i = 0
+    while i < bounds.length() { adverseWordReject(binary, reflection, 3, bounds[i], operation); i = i + 1 }; bounds.free()
+    let model = adverseFind(binary, 14, -1)
+    adverseWordReject(binary, reflection, model + 1, 1, operation); adverseWordReject(binary, reflection, model + 2, 0, operation)
+    let entry = adverseEntryOffset(binary, "foundation"); adverseWordReject(binary, reflection, entry + 1, 0, operation)
+    let geometry = adverseFind(binary, 16, adverseWord(binary, entry + 2))
+    let axes = [1, 1024]; let axisJson = ["[1,1,1]", "[1024,1,1]"]; i = 0
+    while i < axes.length() {
+        let reflected = adverseChange(reflection, "foundation", -1, "workgroup", axisJson[i])
+        adverseReject(binary, reflected, "foundation", operation)
+        let physical = adverseSetWord(binary, geometry + 3, axes[i])
+        adverseAccept(physical, reflected, "foundation", 4, 1, 0)
+        seen_string_release_owned(physical); seen_string_release_owned(reflected); i = i + 1
+    }; axes.free(); axisJson.free()
+    // A sparse, maximum supported descriptor-set index remains a real,
+    // SDK-validated module. The implicit fault descriptor stays in group zero.
+    let groupedWords = Array<Int>(); i = 0
+    while i < binary.length() / 4 { groupedWords.push(adverseWord(binary, i)); i = i + 1 }
+    let groupTree = adverseJson(reflection); let groupRoot = groupTree.value.unwrap()
+    let groupBindings = adverseField(adverseEntry(groupRoot, "foundation"), "bindings"); i = 0
+    while i < groupBindings.length() {
+        let resource = adverseAt(groupBindings, i); let binding = adverseField(resource, "binding").getInt()
+        let descriptor = adverseDescriptor(binary, "foundation", binding); let group = adverseDecoration(binary, descriptor, 34)
+        groupedWords[group + 3] = 3; resource.set("group", JsonValue_number(3)); i = i + 1
+    }
+    let groupedBinary = adverseBinary(groupedWords); groupedWords.free()
+    let groupedReflection = jsonToString(groupRoot); destroyJsonParseResult(groupTree, true)
+    adverseAccept(groupedBinary, groupedReflection, "foundation", 4, 4, 0)
+    seen_string_release_owned(groupedBinary); seen_string_release_owned(groupedReflection)
+    let input = adverseDescriptor(binary, "foundation", 0); let variable = adverseFind(binary, 59, input)
+    let pointerId = adverseWord(binary, variable + 1); let pointer = adverseFind(binary, 32, pointerId)
+    let blockId = adverseWord(binary, pointer + 3); let block = adverseFind(binary, 30, blockId)
+    let arrayId = adverseWord(binary, block + 2); let array = adverseFind(binary, 29, arrayId)
+    let scalarId = adverseWord(binary, array + 2); let scalar = adverseFind(binary, 21, scalarId)
+    adverseWordReject(binary, reflection, variable + 1, 0, operation)
+    adverseWordReject(binary, reflection, variable + 3, 2, operation)
+    adverseWordReject(binary, reflection, pointer + 3, 0, operation)
+    adverseWordReject(binary, reflection, pointer + 2, 2, operation)
+    adverseWordReject(binary, reflection, pointer, (3 << 16) | 32, operation)
+    adverseWordReject(binary, reflection, block, (3 << 16) | 29, operation)
+    adverseWordReject(binary, reflection, array + 2, 0, operation)
+    adverseWordReject(binary, reflection, array, (3 << 16) | 28, operation)
+    adverseWordReject(binary, reflection, scalar + 2, 64, operation)
+    adverseWordReject(binary, reflection, scalar + 3, 2, operation)
+    let stride = adverseDecoration(binary, arrayId, 6); adverseWordReject(binary, reflection, stride + 3, 8, operation)
+    let blockDecoration = adverseDecoration(binary, blockId, 2); adverseWordReject(binary, reflection, blockDecoration + 2, 0, operation)
+    let access = adverseDecoration(binary, input, 24); adverseWordReject(binary, reflection, access + 2, 25, operation)
+    let offset = adverseFind(binary, 72, blockId); adverseWordReject(binary, reflection, offset + 4, 4, operation)
+    let interfaceId = adverseDescriptor(binary, "foundation", 3); let count = adverseWord(binary, entry) >> 16
+    var operand = entry + 3; var found = false
+    // Interface operands follow the NUL-terminated, word-padded entry name.
+    var end = (entry + 3) * 4; while binary.byteAt(end) != 0 { end = end + 1 }; operand = (end + 4) / 4
+    while operand < entry + count {
+        if adverseWord(binary, operand) == interfaceId { adverseWordReject(binary, reflection, operand, adverseWord(binary, 3), operation); found = true }
+        operand = operand + 1
+    }; if not found { abort("actual fault descriptor is not an entry interface") }
+    // Corruption in an unselected function must still reach whole-module
+    // SPIRV-Tools validation, rather than passing entry-only layout checks.
+    let other = adverseEntryOffset(binary, "increment"); let function = adverseFind(binary, 54, adverseWord(binary, other + 2))
+    var cursor = function; var returned = false
+    while cursor < binary.length() / 4 and not returned {
+        let instruction = adverseWord(binary, cursor); let size = instruction >> 16; let opcode = instruction & 65535
+        if opcode == 253 { adverseWordReject(binary, reflection, cursor, (1 << 16) | 252, "gpu.vulkan.artifact.conformance"); returned = true }
+        else if opcode == 56 { abort("actual unrelated function lacks a return") }; cursor = cursor + size
+    }; if not returned { abort("actual unrelated return missing") }
+    adverseWordReject(binary, reflection, other + 1, 0, "gpu.vulkan.artifact.conformance")
+    let words = Array<Int>(); i = 0; while i < binary.length() / 4 { words.push(adverseWord(binary, i)); i = i + 1 }
+    words.push(0); let zero = adverseBinary(words); adverseReject(zero, reflection, "foundation", operation); seen_string_release_owned(zero)
+    words[words.length() - 1] = (2 << 16) | 0; let truncated = adverseBinary(words); adverseReject(truncated, reflection, "foundation", operation); seen_string_release_owned(truncated)
+    words[words.length() - 1] = (1 << 16) | 65535; let unknown = adverseBinary(words)
+    adverseReject(unknown, reflection, "foundation", "gpu.vulkan.artifact.conformance"); seen_string_release_owned(unknown); words.free()
+}
+fun main() r: Int {
+    let baseline = seen_memory_used_bytes(); let arguments = args()
+    if arguments.length() != 3 { abort("requires actual emitted SPIR-V and reflection") }
+    if size(arguments[1]) < 20 or size(arguments[1]) > 33554432 or size(arguments[2]) < 1 or size(arguments[2]) > 4194304 { abort("actual artifact input bounds invalid") }
+    let binary = readText(arguments[1]); let reflection = readText(arguments[2]); let retained = seen_memory_used_bytes()
+    var round = 0
+    while round < 3 {
+        adverseAccept(binary, reflection, "foundation", 4, 1, 0)
+        adverseAccept(binary, reflection, "sharedProbe", 2, 1, 16)
+        adverseAdmission(binary, reflection); adverseReflectionCases(binary, reflection)
+        adverseEntryIsolation(binary, reflection); adversePhysicalCases(binary, reflection)
+        if seen_memory_used_bytes() != retained { abort("repeated adverse artifact mutations retained native ownership") }; round = round + 1
+    }
+    seen_string_release_owned(binary); seen_string_release_owned(reflection); releaseArgs(arguments)
+    if seen_memory_used_bytes() != baseline { abort("adverse artifact fixture retained inputs or argument ownership") }
+    return 0
+}

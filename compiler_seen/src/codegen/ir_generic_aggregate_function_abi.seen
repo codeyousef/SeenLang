@@ -1,0 +1,234 @@
+/// Generic free functions retain one erased implementation. Compare the value
+/// ABI at each signature root, not the spelling of phantom runtime payloads.
+import parser.real_parser.{genericParameterCount, genericParameterNameAt}
+import typechecker.type_ref.{TypeRef, parseTypeRef, typeRefSubstitute}
+import typechecker.semantic_registry.{semanticBuiltinGenericArity}
+import codegen.ir_type_mapping.{mapTypeImpl, normalizeSeenTypeNameImpl, normalizeDeclaredTypeNodeImpl}
+import codegen.ir_generic_aggregate.{GenericAggregateFunctionDefinition, GenericAggregateFunctionUse, g_genericAggregateOpenParameters, g_genericAggregateClassOwners, genericAggregateRegistryImpl, genericAggregateResolveTypeImpl, genericAggregateValueTypeImpl, genericAggregateRuntimeTypeImpl, rejectGenericAggregateImpl}
+
+fun genericAggregateFunctionBeforeTypeImpl(
+    definition: GenericAggregateFunctionDefinition, spelling: String)
+    r: TypeRef {
+
+    // Ownership is semantic proof metadata, not merely an LLVM type modifier.
+    let reference = parseTypeRef(spelling, 0, 0, "")
+    if not reference.valid {
+        rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] cannot prove generic function type ABI: " + definition.owner + " (" + spelling + ")")
+    }
+    reference.base = normalizeSeenTypeNameImpl(reference.base)
+    let parameters = Array<String>()
+    var i = 0
+    while i < genericParameterCount(definition.declaration.decorators) {
+        parameters.push(genericParameterNameAt(
+            definition.declaration.decorators, i))
+        i = i + 1
+    }
+    let previousParameters = g_genericAggregateOpenParameters
+    g_genericAggregateOpenParameters = parameters
+    genericAggregateResolveTypeImpl(reference, definition.moduleName, 0)
+    g_genericAggregateOpenParameters = previousParameters
+    // Parameter names belong to the declaration; only this descriptor is ours.
+    parameters.free()
+    return reference
+}
+
+fun genericAggregateFunctionAfterTypeImpl(
+    definition: GenericAggregateFunctionDefinition,
+    use: GenericAggregateFunctionUse, spelling: String) r: TypeRef {
+
+    // Substitute source generic names before expanding aliases. An alias may
+    // resolve to an unrelated class whose short name equals a type parameter.
+    let declared = parseTypeRef(spelling, 0, 0, "")
+    if not declared.valid {
+        rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] cannot prove generic function type ABI: " + definition.owner + " (" + spelling + ")")
+    }
+    declared.base = normalizeSeenTypeNameImpl(declared.base)
+    let parameters = Array<String>()
+    var i = 0
+    while i < genericParameterCount(definition.declaration.decorators) {
+        parameters.push(genericParameterNameAt(
+            definition.declaration.decorators, i))
+        i = i + 1
+    }
+    if parameters.length() != use.arguments.length() {
+        rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] generic function argument arity disagrees with declaration: " + definition.owner)
+    }
+    // Substitution shares a replacement's child descriptor. Snapshot actual
+    // references first so alias resolution cannot mutate the recorded use.
+    let emptyNames = Array<String>()
+    let emptyArguments = Array<TypeRef>()
+    let arguments = Array<TypeRef>()
+    i = 0
+    while i < use.arguments.length() {
+        arguments.push(typeRefSubstitute(use.arguments[i], emptyNames,
+            emptyArguments))
+        i = i + 1
+    }
+    let after = typeRefSubstitute(declared, parameters, arguments)
+    // Alias bodies resolve in their own lexical scopes. Actual arguments carry
+    // caller identities and must not acquire the callee's generic scope.
+    let previousParameters = g_genericAggregateOpenParameters
+    g_genericAggregateOpenParameters = emptyNames
+    genericAggregateResolveTypeImpl(after, definition.moduleName, 0)
+    g_genericAggregateOpenParameters = previousParameters
+    parameters.free()
+    arguments.free()
+    emptyNames.free()
+    emptyArguments.free()
+    return after
+}
+
+fun genericAggregateFunctionValueAbiImpl(reference: TypeRef,
+    moduleName: String, depth: Int) r: String {
+
+    if depth > 128 or not reference.valid {
+        rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] generic function value ABI exceeds proof limit")
+    }
+    if reference.nullable { return "i64" }
+    if reference.kind == "pointer" or reference.kind == "const_pointer" or
+        reference.kind == "dynamic" { return "i64" }
+    if reference.kind == "fixed_array" {
+        if reference.arguments.length() != 2 {
+            rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] malformed fixed-array function ABI")
+        }
+        return "[" + reference.arguments[1].canonicalIdentity() + " x " +
+            genericAggregateFunctionValueAbiImpl(reference.arguments[0],
+                moduleName, depth + 1) + "]"
+    }
+    if reference.kind == "function" {
+        // A callback is a pointer, but invoking it also requires its pointee's
+        // signature ABI. Phantom labels beneath its fixed handles still erase.
+        var signature = "callback("
+        var i = 0
+        while i < reference.arguments.length() {
+            signature = signature + genericAggregateFunctionValueAbiImpl(
+                reference.arguments[i], moduleName, depth + 1) + ";"
+            i = i + 1
+        }
+        return signature + ")"
+    }
+    if reference.kind == "error_union" { return "i64" }
+    if reference.identityBase.startsWith("generic:") { return "i64" }
+    if reference.base == "Array" or reference.base == "List" {
+        // The descriptor is fixed even when its element value ABI is not.
+        // Element storage/read proofs belong to the function body traversal.
+        return "descriptor:ptr"
+    }
+
+    let registry = genericAggregateRegistryImpl()
+    var index = -1
+    if reference.identityBase != "" {
+        index = registry.findCanonical(reference.identityBase)
+    } else {
+        index = registry.lookupIndex(moduleName, reference.base)
+    }
+    if index >= 0 and registry.hasDecorator(registry.canonicalNames[index], "type_alias") {
+        // Most callers already resolved aliases in Before/AfterType. Keep this
+        // boundary safe for member metadata without changing a borrowed ref.
+        let emptyNames = Array<String>()
+        let emptyArguments = Array<TypeRef>()
+        var resolved = typeRefSubstitute(reference, emptyNames, emptyArguments)
+        if registry.kinds[index] != "Alias" {
+            // Distinct aliases retain semantic identity, but their root value
+            // representation still comes from the declared target.
+            let parameters = Array<String>()
+            var parameterIndex = 0
+            while parameterIndex < registry.genericOwners.length() {
+                if registry.genericOwners[parameterIndex] == registry.canonicalNames[index] {
+                    parameters.push(registry.genericNames[parameterIndex])
+                }
+                parameterIndex = parameterIndex + 1
+            }
+            let target = parseTypeRef(registry.declarationDetails[index], 0, 0, "")
+            if not target.valid or parameters.length() != resolved.arguments.length() {
+                rejectGenericAggregateImpl("Error: [E_GENERIC_AGGREGATE] malformed distinct alias representation metadata")
+            }
+            resolved = typeRefSubstitute(target, parameters, resolved.arguments)
+            parameters.free()
+        }
+        let previousParameters = g_genericAggregateOpenParameters
+        g_genericAggregateOpenParameters = emptyNames
+        genericAggregateResolveTypeImpl(resolved, registry.modules[index], depth + 1)
+        g_genericAggregateOpenParameters = previousParameters
+        emptyNames.free()
+        emptyArguments.free()
+        return genericAggregateFunctionValueAbiImpl(resolved,
+            registry.modules[index], depth + 1)
+    }
+    if index >= 0 and registry.kinds[index] == "Class" and
+        not genericAggregateRuntimeTypeImpl(reference.base) {
+        let owner = registry.canonicalNames[index]
+        var concrete = false
+        var i = 0
+        while i < reference.arguments.length() {
+            if genericAggregateValueTypeImpl(reference.arguments[i],
+                moduleName, depth + 1) { concrete = true }
+            i = i + 1
+        }
+        var identity = owner
+        if concrete {
+            // This is the same direct aggregate-argument condition used by
+            // class specialization. Equal-sized clones are not interchangeable.
+            identity = reference.canonicalIdentity()
+        }
+        if registry.hasDecorator(owner, "data") or
+            registry.hasDecorator(owner, "struct") or
+            registry.hasDecorator(owner, "repr") {
+            return "value-class:" + identity
+        }
+        if concrete { return "concrete-class:" + identity }
+        return "i64"
+    }
+    // Reuse the physical mapping authority for scalars, SIMD and runtime-owned
+    // containers. Their generic labels do not change their root representation.
+    // The class-owner descriptor is borrowed and is not mutated by mapTypeImpl.
+    if semanticBuiltinGenericArity(reference.base) >= 0 {
+        return mapTypeImpl(reference.canonical(),
+            g_genericAggregateClassOwners, "", "", 0, "")
+    }
+    return mapTypeImpl(reference.base, g_genericAggregateClassOwners,
+        "", "", 0, "")
+}
+
+fun genericAggregateFunctionValueCompatibleImpl(before: TypeRef,
+    after: TypeRef, moduleName: String) r: Bool {
+    if genericAggregateFunctionValueAbiImpl(before, moduleName, 0) ==
+        genericAggregateFunctionValueAbiImpl(after, moduleName, 0) { return true }
+    // A bare generic value is the existing word carrier. Its scalar/handle
+    // adapters preserve bits at call boundaries; no such adapter exists for
+    // multiword aggregates. Nested layouts are deliberately not normalized.
+    if before.identityBase.startsWith("generic:") {
+        return not genericAggregateValueTypeImpl(after, moduleName, 0)
+    }
+    return false
+}
+
+fun validateGenericAggregateFunctionAbiImpl(
+    definition: GenericAggregateFunctionDefinition,
+    use: GenericAggregateFunctionUse) r: Bool {
+
+    var i = 0
+    while i < definition.declaration.params.length() {
+        let parameter = definition.declaration.params[i]
+        let spelling = normalizeDeclaredTypeNodeImpl(parameter.paramType)
+        let before = genericAggregateFunctionBeforeTypeImpl(definition,
+            spelling)
+        let after = genericAggregateFunctionAfterTypeImpl(definition, use,
+            spelling)
+        if not genericAggregateFunctionValueCompatibleImpl(before, after,
+            definition.moduleName) {
+            println("Error: [E_GENERIC_AGGREGATE] generic function parameter requires unsupported value ABI or concrete class specialization: " + definition.owner + " (" + parameter.name + ")")
+            return false
+        }
+        i = i + 1
+    }
+    let spelling = normalizeDeclaredTypeNodeImpl(definition.declaration.returnType)
+    let before = genericAggregateFunctionBeforeTypeImpl(definition, spelling)
+    let after = genericAggregateFunctionAfterTypeImpl(definition, use, spelling)
+    if not genericAggregateFunctionValueCompatibleImpl(before, after,
+        definition.moduleName) {
+        println("Error: [E_GENERIC_AGGREGATE] generic function return requires unsupported value ABI or concrete class specialization: " + definition.owner)
+        return false
+    }
+    return true
+}

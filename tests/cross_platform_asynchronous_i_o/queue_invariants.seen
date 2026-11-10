@@ -1,0 +1,21 @@
+import io.completion_queue.{IoQueue}
+import fixture_support.{ioRequire}
+fun checkIoQueueInvariants(borrow queue: IoQueue) r: Void {
+    ioRequire(not queue.deviceLost or not queue.accepting)
+    var active = 0; var native = 0; var terminal = 0; var owned = 0 as UInt64; var metadata = 0 as UInt64; var i = 0
+    while i < queue.capacity {
+        if queue.states[i] != 0 {
+            let request = queue.entries[i].unwrap(); active = active + 1
+            owned = owned + request.resources.buffer.byteLength
+            metadata = metadata + (request.context.resourceId.length() as UInt64) + (request.context.operation.traceId.value.length() as UInt64)
+            if queue.states[i] == 2 { native = native + 1 }
+            if queue.states[i] == 3 { terminal = terminal + 1 }
+            ioRequire(queue.states[i] >= 1 and queue.states[i] <= 4)
+        } else { ioRequire(queue.entries[i].isNone()) }
+        i = i + 1
+    }
+    ioRequire(active == queue.active and native == queue.nativeActive and terminal == queue.terminalCount)
+    ioRequire(owned == queue.ownedBytes and owned <= queue.maxOwnedBytes)
+    ioRequire(metadata == queue.metadataBytes and metadata <= queue.maxMetadataBytes)
+    ioRequire(active <= queue.capacity and queue.freeCount + active <= queue.capacity)
+}
