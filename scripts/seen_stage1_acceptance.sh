@@ -501,6 +501,8 @@ COMPILER="$REAL_COMPILER" \
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_literal_integrity.sh"
 COMPILER="$REAL_COMPILER" \
+    "$REPO_ROOT/tests/misc_root_tests/seen_conditional_assignment.sh"
+COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_default_constant_arguments_contract.sh"
 SEEN_BIN="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_cuda_after_bounded_array_release.sh"

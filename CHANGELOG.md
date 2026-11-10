@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.13] - 2026-11-10
+
+### Fixed
+
+- Never evaluate the value of a conditional assignment when its condition is
+  false (FEL-3107). An `if` whose only statement assigns a local, such as
+  `if index < 0 { index = engine.spawn() }`, was lowered to a branchless
+  select that evaluated the assigned value unconditionally and then kept the
+  old value. Method calls, `%`, and array reads therefore ran even when the
+  condition was false, so their side effects happened, a division by zero
+  could trap, and an out-of-range read could panic. Selects are now formed
+  only when every assigned value is a literal, a local, a negation, or
+  `+ - *` of integer or float operands.
+
 ## [0.22.12] - 2026-11-08
 
 ### Fixed

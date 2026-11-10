@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, release/0.22.12]
+    branches: [main, release/0.22.13]
   workflow_dispatch:
 
 permissions:

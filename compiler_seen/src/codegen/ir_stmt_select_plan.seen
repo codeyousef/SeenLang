@@ -76,6 +76,29 @@ fun isSelectCompareOperatorImpl(operator: String) r: Bool {
         operator == "<="
 }
 
+// A select evaluates both arms, so an arm may only hold expressions that
+// cannot call, trap, or touch memory: literals, locals, unary minus, and
+// wrapping + - *. exprCost alone scored method calls and % as cheap.
+fun isSpeculatableSelectExprImpl(expr: ParserExpressionNode) r: Bool {
+    if expr.kind == "Literal" or expr.kind == "Variable" {
+        return true
+    }
+    if expr.kind == "Unary" {
+        return expr.operator == "-" and expr.operands.length() == 1 and
+            isSpeculatableSelectExprImpl(expr.operands[0])
+    }
+    if expr.kind == "Binary" {
+        if expr.operator != "+" and expr.operator != "-" and
+            expr.operator != "*" {
+            return false
+        }
+        return expr.operands.length() == 2 and
+            isSpeculatableSelectExprImpl(expr.operands[0]) and
+            isSpeculatableSelectExprImpl(expr.operands[1])
+    }
+    return false
+}
+
 fun planPairedAssignmentSelectIfImpl(stmt: StatementNode)
     r: PairedAssignmentSelectPlan {
 
@@ -101,6 +124,10 @@ fun planPairedAssignmentSelectIfImpl(stmt: StatementNode)
     if exprCost(thenRhs) >= 8 or exprCost(elseRhs) >= 8 {
         return invalidPairedAssignmentSelectPlanImpl()
     }
+    if not isSpeculatableSelectExprImpl(thenRhs) or
+        not isSpeculatableSelectExprImpl(elseRhs) {
+        return invalidPairedAssignmentSelectPlanImpl()
+    }
 
     return PairedAssignmentSelectPlan.new(true, thenAssignName,
         thenRhs, elseRhs)
@@ -124,7 +151,7 @@ fun planSingleArmSelectIfImpl(stmt: StatementNode) r: SingleArmSelectPlan {
     }
 
     let rhsExpr = selectAssignmentRhsImpl(thenStmt)
-    if exprCost(rhsExpr) >= 5 {
+    if exprCost(rhsExpr) >= 5 or not isSpeculatableSelectExprImpl(rhsExpr) {
         return invalidSingleArmSelectPlanImpl()
     }
     return SingleArmSelectPlan.new(true, assignName, rhsExpr)

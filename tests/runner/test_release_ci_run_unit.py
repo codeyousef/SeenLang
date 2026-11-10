@@ -19,7 +19,7 @@ SPEC.loader.exec_module(release_ci)
 COMMIT = "a" * 40
 REPOSITORY = "codeyousef/SeenLang"
 MAIN_TAG = "v0.22.9"
-MAINTENANCE_TAG = "v0.22.12"
+MAINTENANCE_TAG = "v0.22.13"
 
 
 def run(**changes):
@@ -67,7 +67,7 @@ class Tests(unittest.TestCase):
             {"status": "in_progress"},
             {"repository": {"full_name": "fork/SeenLang"}},
         )
-        for tag, branch in ((MAIN_TAG, "main"), (MAINTENANCE_TAG, "release/0.22.12")):
+        for tag, branch in ((MAIN_TAG, "main"), (MAINTENANCE_TAG, "release/0.22.13")):
             for mutation in mutations:
                 with self.subTest(tag=tag, mutation=mutation):
                     candidate = run(head_branch=branch)
@@ -79,22 +79,22 @@ class Tests(unittest.TestCase):
     def test_accepts_exact_maintenance_run_not_main(self):
         raw = json.dumps({
             "total_count": 2,
-            "workflow_runs": [run(head_branch="release/0.22.12"), run(id=99)],
+            "workflow_runs": [run(head_branch="release/0.22.13"), run(id=99)],
         }).encode()
         report = release_ci.validate(raw, COMMIT, REPOSITORY, MAINTENANCE_TAG)
         self.assertEqual(report["run_id"], 42)
-        self.assertEqual(report["source_branch"], "release/0.22.12")
+        self.assertEqual(report["source_branch"], "release/0.22.13")
         self.assertEqual(report["tag"], MAINTENANCE_TAG)
 
     def test_branch_authorization_is_exactly_version_bound(self):
         cases = (
             (MAINTENANCE_TAG, "main"),
-            (MAIN_TAG, "release/0.22.12"),
-            ("v0.22.11", "release/0.22.12"),
-            ("v0.22.13", "release/0.22.12"),
-            ("v0.23.0", "release/0.22.12"),
-            ("v0.22.12-rc.1", "release/0.22.12"),
-            (MAINTENANCE_TAG, "release/0.22.11"),
+            (MAIN_TAG, "release/0.22.13"),
+            ("v0.22.12", "release/0.22.13"),
+            ("v0.22.14", "release/0.22.13"),
+            ("v0.23.0", "release/0.22.13"),
+            ("v0.22.13-rc.1", "release/0.22.13"),
+            (MAINTENANCE_TAG, "release/0.22.12"),
         )
         for tag, branch in cases:
             with self.subTest(tag=tag, branch=branch):
@@ -104,12 +104,12 @@ class Tests(unittest.TestCase):
 
     def test_other_versions_keep_main(self):
         raw = json.dumps({"total_count": 1, "workflow_runs": [run()]}).encode()
-        for tag in ("v0.22.11", "v0.22.13", "v0.23.0", "v0.22.12-rc.1"):
+        for tag in ("v0.22.12", "v0.22.14", "v0.23.0", "v0.22.13-rc.1"):
             with self.subTest(tag=tag):
                 self.assertEqual(release_ci.validate(raw, COMMIT, REPOSITORY, tag)["source_branch"], "main")
 
     def test_probe_and_publication_dispatch_refs(self):
-        for tag, branch in ((MAIN_TAG, "main"), (MAINTENANCE_TAG, "release/0.22.12")):
+        for tag, branch in ((MAIN_TAG, "main"), (MAINTENANCE_TAG, "release/0.22.13")):
             release_ci.validate_dispatch(tag, f"refs/heads/{branch}", True)
             release_ci.validate_dispatch(tag, f"refs/tags/{tag}", False)
             for ref, probe in (
@@ -124,7 +124,7 @@ class Tests(unittest.TestCase):
         with self.assertRaises(release_ci.EvidenceError):
             release_ci.validate_dispatch(MAINTENANCE_TAG, "refs/heads/main", True)
         with self.assertRaises(release_ci.EvidenceError):
-            release_ci.validate_dispatch("v0.23.0", "refs/heads/release/0.22.12", True)
+            release_ci.validate_dispatch("v0.23.0", "refs/heads/release/0.22.13", True)
 
     def test_invalid_version_cannot_select_a_branch(self):
         for tag in ("0.22.10", "v00.22.10", "v0.22.10/feature", "v0.22.10\n", ""):

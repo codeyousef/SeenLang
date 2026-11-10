@@ -1,0 +1,132 @@
+// FEL-3107: an if whose only statement assigns a local must not evaluate the
+// assigned value when the condition is false. The branchless select lowering
+// used to run method calls, % and index reads unconditionally, so a spawn
+// fallback ran after a successful retarget and its result was dropped.
+
+class Engine {
+    var spawned: Int
+    var hidden: Int
+
+    static fun new() r: Engine { return Engine { spawned: 0, hidden: 0 } }
+
+    fun retarget(index: Int) r: Int {
+        if index >= 0 {
+            return 1
+        }
+        return 0
+    }
+
+    fun spawn() r: Int {
+        this.spawned = this.spawned + 1
+        return 100 + this.spawned
+    }
+
+    fun hide(index: Int) r: Int {
+        this.hidden = this.hidden + 1
+        return index
+    }
+}
+
+fun reuseOrSpawn(engine: Engine, current: Int) r: Int {
+    var instanceIndex = current
+    if instanceIndex >= 0 {
+        let retargeted = engine.retarget(instanceIndex)
+        if retargeted == 1 {
+            let _shown = instanceIndex
+        } else {
+            let _hidden = engine.hide(instanceIndex)
+            instanceIndex = -1
+        }
+    }
+    if instanceIndex < 0 {
+        instanceIndex = engine.spawn()
+    }
+    return instanceIndex
+}
+
+fun pickEither(engine: Engine, flag: Int) r: Int {
+    var picked = 0
+    if flag > 0 {
+        picked = engine.spawn()
+    } else {
+        picked = engine.hide(7)
+    }
+    return picked
+}
+
+fun guardedRemainder(value: Int, divisor: Int) r: Int {
+    var result = -1
+    if divisor > 0 {
+        result = value % divisor
+    }
+    return result
+}
+
+fun guardedRead(values: Array<Int>, index: Int) r: Int {
+    var found = -1
+    if index < values.length() {
+        found = values[index]
+    }
+    return found
+}
+
+fun guardedMax(a: Int, b: Int) r: Int {
+    var best = a
+    if b > best {
+        best = b
+    }
+    return best
+}
+
+fun sideEffectFailure(message: String) r: Int {
+    println(message)
+    return 1
+}
+
+fun main() r: Int {
+    let engine = Engine.new()
+    let first = reuseOrSpawn(engine, -1)
+    if first != 101 or engine.spawned != 1 {
+        return sideEffectFailure("missing instance did not spawn exactly once")
+    }
+    for stage in 0..3 {
+        let kept = reuseOrSpawn(engine, first)
+        if kept != first {
+            return sideEffectFailure("retargeted instance was replaced")
+        }
+    }
+    if engine.spawned != 1 {
+        return sideEffectFailure("spawn ran after a successful retarget")
+    }
+    if engine.hidden != 0 {
+        return sideEffectFailure("hide ran after a successful retarget")
+    }
+
+    if pickEither(engine, 1) != 102 or engine.hidden != 0 {
+        return sideEffectFailure("if/else ran the else call")
+    }
+    if pickEither(engine, 0) != 7 or engine.spawned != 2 {
+        return sideEffectFailure("if/else ran the then call")
+    }
+
+    if guardedRemainder(17, 5) != 2 {
+        return sideEffectFailure("guarded remainder differs")
+    }
+    if guardedRemainder(17, 0) != -1 {
+        return sideEffectFailure("guarded remainder by zero differs")
+    }
+
+    let values = [4, 5, 6]
+    if guardedRead(values, 2) != 6 {
+        return sideEffectFailure("guarded read differs")
+    }
+    if guardedRead(values, 3) != -1 {
+        return sideEffectFailure("guarded out-of-range read differs")
+    }
+
+    if guardedMax(3, 9) != 9 or guardedMax(9, 3) != 9 {
+        return sideEffectFailure("plain max differs")
+    }
+    println("conditional assignment side effects: ok")
+    return 0
+}

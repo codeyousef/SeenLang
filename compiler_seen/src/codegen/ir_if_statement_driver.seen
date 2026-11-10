@@ -1,6 +1,6 @@
 // ir_if_statement_driver.seen - if/if-let statement lowering.
 
-import parser.real_parser.{StatementNode}
+import parser.real_parser.{StatementNode, ParserExpressionNode}
 import str.string.{StringBuilder}
 import codegen.ir_codegen_feature_state.{getFeatureRegBoxImpl, getFeatureBlockBoxImpl}
 import codegen.ir_codegen_global_state.{getBoundedActiveVarCountWithGlobalStateImpl, setActiveVarCountWithGlobalStateImpl, getBlockTerminatedWithGlobalStateImpl, setBlockTerminatedWithGlobalStateImpl}
@@ -13,6 +13,24 @@ import codegen.ir_stmt_gen.{emitConditionToI1Impl, computeIfBranchWeightMetadata
 import codegen.ir_stmt_select_plan.{planPairedAssignmentSelectIfImpl, planSingleArmSelectIfImpl}
 import codegen.ir_variable_gen.{findActiveVariableIndexImpl}
 import codegen.ir_function_state.{getCurrentFunctionEmissionStateImpl, restoreMovedVariablesImpl, mergeMovedVariablesImpl}
+
+// Operator methods make + - * on class values user calls; every node of a
+// speculated arm must already be a plain integer or float.
+fun hasScalarSelectOperandsState(ctx: CodegenLoweringContext,
+    expr: ParserExpressionNode, llvmType: String) r: Bool {
+
+    if mapTypeState(inferLoweredExpressionType(ctx, expr)) != llvmType {
+        return false
+    }
+    var i = 0
+    while i < expr.operands.length() {
+        if not hasScalarSelectOperandsState(ctx, expr.operands[i], llvmType) {
+            return false
+        }
+        i = i + 1
+    }
+    return true
+}
 
 class IfStatementDriverResult {
     var branchesEliminated: Int
@@ -80,6 +98,10 @@ fun tryEmitPairedAssignmentSelectIfStatementState(
     if thenType != llvmType or elseType != llvmType {
         return IfStatementDriverResult.new(branchesEliminated)
     }
+    if not hasScalarSelectOperandsState(ctx, selectPlan.thenRhs, llvmType) or
+        not hasScalarSelectOperandsState(ctx, selectPlan.elseRhs, llvmType) {
+        return IfStatementDriverResult.new(branchesEliminated)
+    }
 
     let condReg = lowerExpression(ctx, stmt.condition)
     let thenReg = lowerExpression(ctx, selectPlan.thenRhs)
@@ -114,7 +136,8 @@ fun tryEmitSingleArmSelectIfStatementState(ctx: CodegenLoweringContext,
     }
     let rhsType = mapTypeState(inferLoweredExpressionType(ctx,
         singlePlan.rhsExpr))
-    if rhsType != singleLlvmType {
+    if rhsType != singleLlvmType or
+        not hasScalarSelectOperandsState(ctx, singlePlan.rhsExpr, singleLlvmType) {
         return IfStatementDriverResult.new(branchesEliminated)
     }
 
