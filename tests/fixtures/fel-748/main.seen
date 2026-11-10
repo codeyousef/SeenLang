@@ -1,0 +1,30 @@
+// A widening loop LLVM vectorizes at the widest width the selected features
+// allow, so an unguarded wide vector register in Seen code is observable.
+fun widenAndScale(source: Array<Int32>, target: Array<Int>) r: Void {
+    var index = 0
+    while index < source.length() {
+        target[index] = (source[index] as Int) * 3
+        index = index + 1
+    }
+}
+
+fun main() r: Int {
+    let source = Array<Int32>()
+    let target = Array<Int>()
+    var index = 0
+    while index < 4096 {
+        source.push((index % 97) as Int32)
+        target.push(0)
+        index = index + 1
+    }
+    widenAndScale(source, target)
+    var total = 0
+    index = 0
+    while index < target.length() {
+        total = total + target[index]
+        index = index + 1
+    }
+    if total != 587349 { return 1 }
+    println("PASS: FEL-748 native ThinLTO features")
+    return 0
+}

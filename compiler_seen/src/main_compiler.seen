@@ -954,6 +954,37 @@ fun compileRuntimeObjectAtomically(objectPath: String, signature: String,
     return runtimeObjectIsFresh(objectPath, signature)
 }
 
+///
+Resolve the feature set `-march=native` selects on this host. Clang hands
+LLD's ThinLTO backend only `mcpu=<host cpu>`, and Seen-emitted functions carry
+no target attributes, so without this list LLD codegens them with that CPU's
+default features. A VM that masks an extension its CPU model implies (AVX-512
+on some x86-64-v3 runners) then faults with SIGILL.
+///
+fun nativeLtoFeatureList() r: String {
+    let probe: CommandResult = runCommand(
+        "clang -march=native -### -x c -c /dev/null -o /dev/null 2>&1")
+    if not commandWasSuccessful(probe) {
+        return ""
+    }
+    let tokens = probe.output.split(" ")
+    var features = ""
+    var tokenIdx = 0
+    while tokenIdx + 1 < tokens.length() {
+        if tokens[tokenIdx].trim() == "\"-target-feature\"" {
+            let feature = tokens[tokenIdx + 1].trim().replace("\"", "")
+            if feature != "" {
+                if features != "" {
+                    features = features + ","
+                }
+                features = features + feature
+            }
+        }
+        tokenIdx = tokenIdx + 1
+    }
+    return features
+}
+
 fun releaseLtoCacheDir() r: String {
     return "target/seen-build/release-lto"
 }
@@ -16210,6 +16241,19 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                 linkCmd = "clang -O3 -flto=thin -fuse-ld=lld " +
                     lldThinltoFlag + " " + clangMarch +
                     " -Wl,--gc-sections -ffp-contract=fast -Wno-unused-command-line-argument -mllvm -inline-threshold=1500 "
+            }
+            if clangMarch == "-march=native" {
+                let nativeFeatures = nativeLtoFeatureList()
+                if nativeFeatures == "" {
+                    println("    Error: could not detect host CPU features for the ThinLTO link")
+                    return 1
+                }
+                if g_compilerVerbose == 1 {
+                    println("    Native ThinLTO features: " + nativeFeatures)
+                }
+                // -Xlinker, not -Wl: the feature list is comma-separated.
+                linkCmd = linkCmd + "-Xlinker " + mainCompilerShellQuote(
+                    "-plugin-opt=-mattr=" + nativeFeatures) + " "
             }
         }
     }
