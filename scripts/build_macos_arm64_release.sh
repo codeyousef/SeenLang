@@ -45,6 +45,14 @@ export SEEN_COMPILER_SOURCE_ROOT="$root_dir"
 export PATH="$tools_dir:$PATH"
 export SEEN_MACOS_SDKROOT="$sdk"
 
+# The shipped compiler builds this runtime natively on a Mac without the
+# cross wrapper's -D_DARWIN_C_SOURCE, so the sources must expose the Darwin
+# APIs they use on their own.
+/usr/bin/clang --target=arm64-apple-macos13 -isysroot "$sdk" \
+    -I "$root_dir/seen_runtime" -I "$root_dir/seen_runtime/src" -fsyntax-only \
+    -Werror=implicit-function-declaration "$root_dir/seen_runtime/seen_runtime.c" ||
+    die 'shipped runtime does not compile natively for macOS'
+
 "$builder" compile "$root_dir/compiler_seen/src/main_compiler.seen" \
     "$compiler_out" --target macos-arm64 --fast --no-cache \
     --jobs 1 --opt-jobs 1 --no-fork
