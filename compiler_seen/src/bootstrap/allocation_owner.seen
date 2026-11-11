@@ -12,8 +12,11 @@ extern "C" fun seen_memory_peak_bytes() r: Int64
 
 /// Live and peak runtime-accounted bytes, for build-trace phase events.
 fun compilerMemoryTraceDetail() r: String {
-    return "mem_used=" + (seen_memory_used_bytes() as Int).toString() +
-        " mem_peak=" + (seen_memory_peak_bytes() as Int).toString()
+    // Typed locals: the bootstrap stage compiler lowers `.toString()` on a
+    // parenthesized cast to an undefined `Int_toString` symbol.
+    let used: Int = seen_memory_used_bytes() as Int
+    let peak: Int = seen_memory_peak_bytes() as Int
+    return "mem_used=" + used.toString() + " mem_peak=" + peak.toString()
 }
 
 fun allocationOwnerFree(address: UInt64, bytes: Int64, kind: Int) r: Void {
