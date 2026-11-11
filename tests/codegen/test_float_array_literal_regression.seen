@@ -1,0 +1,22 @@
+// FEL-3111: Float array literals once pushed each element as `ptr 2.0`.
+fun total(values: Array<Float>) r: Float {
+    var sum = 0.0
+    var index = 0
+    while index < values.length() {
+        sum = sum + values[index]
+        index = index + 1
+    }
+    return sum
+}
+
+fun main() r: Int {
+    let halves = [2.0, 3.0, 2.5]
+    if halves.length() != 3 { return 1 }
+    if halves.get(1) != 3.0 { return 2 }
+    if total(halves) != 7.5 { return 3 }
+    if total([-1.5, 0.25]) != -1.25 { return 4 }
+    var grown = [1.0]
+    grown.push(4.5)
+    if total(grown) != 5.5 { return 5 }
+    return 0
+}

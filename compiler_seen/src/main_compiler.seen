@@ -207,7 +207,7 @@ import codegen.gpu_lower_context.{GpuLowerContext as _seedGpuLowerContext}
 import codegen.gpu_lower_values.{gpuLowerLiteral as _seedGpuLowerValues}
 import codegen.gpu_lower_program.{lowerGpuProgram as _seedLowerGpuProgram}
 import codegen.gpu_source.{lowerGpuSource as _seedLowerGpuSource}
-import bootstrap.allocation_owner.{FrontendAllocationOwner as _seedFrontendAllocationOwner}
+import bootstrap.allocation_owner.{FrontendAllocationOwner as _seedFrontendAllocationOwner, compilerMemoryTraceDetail}
 import bootstrap.owned_frontend.{OwnedFrontend as _seedOwnedFrontend}
 import typechecker.gpu_module_frontend.{gpuCheckModule as _seedGpuCheckModule}
 import release.compatibility.{CompatibilityManifest as _seedCompatibilityManifest,
@@ -1276,7 +1276,9 @@ fun buildTraceEmit(phase: String, status: String, durationMs: Int, detail: Strin
         "," + q + "status" + q + ":" + q + buildTraceJsonEscape(status) + q +
         "," + q + "duration_ms" + q + ":" +
         durationMs.toString() +
-        "," + q + "detail" + q + ":" + q + buildTraceJsonEscape(detail) + q + "}\n"
+        "," + q + "detail" + q + ":" + q +
+        buildTraceJsonEscape(detail + " " + compilerMemoryTraceDetail()) +
+        q + "}\n"
     let _ = appendText(tracePath, line)
     return
 }
@@ -8247,6 +8249,19 @@ fun checkResolvedLexicalSemanticModule(frontend: FrontendResult,
 }
 
 ///
+--no-fork forbids concurrent workers, not isolation. The runtime never collects
+an AST, so a large serial build that parses every module in this process keeps
+all of them until exit (FEL-3110). Run each module's parse in one forked worker
+at a time instead; a failed fork falls back to in-process work, which covers
+Windows, iOS and tight task caps. Compiler self-builds keep their in-process
+path so bootstrap stages are unchanged.
+///
+fun noForkSerialIsolationEnabled(modulePaths: Array<String>) r: Bool {
+    return g_noFork == 1 and modulePaths.length() > 48 and
+        not moduleGraphContainsCompilerSources(modulePaths)
+}
+
+///
 Run the full-body half of the lexical semantic gate over a complete module
 graph. No LLVM generator or codegen state is created here, so the check command can
 share the exact compile validation path without entering lowering.
@@ -8261,7 +8276,8 @@ fun validateLexicalSemanticModulePaths(modulePaths: Array<String>,
     // Isolate one read-only semantic check at a time: fork preserves the
     // complete declaration registry through copy-on-write, waitPid keeps the
     // worker count bounded, and process exit releases the module AST.
-    let isolateLargeGraphChecks = modulePaths.length() > 48 and g_noFork == 0
+    var isolateLargeGraphChecks = modulePaths.length() > 48 and
+        (g_noFork == 0 or noForkSerialIsolationEnabled(modulePaths))
     var moduleIndex = 0
     while moduleIndex < modulePaths.length() {
         let modulePath = modulePaths[moduleIndex]
@@ -8269,8 +8285,15 @@ fun validateLexicalSemanticModulePaths(modulePaths: Array<String>,
             printCompileProgress("Pass 1b", "checking semantics",
                 moduleIndex + 1, modulePaths.length(), modulePath)
         }
+        var semanticPid = -1
         if isolateLargeGraphChecks {
-            let semanticPid = processFork()
+            semanticPid = processFork()
+            if semanticPid < 0 and g_noFork == 1 {
+                println("    Note: semantic worker fork unavailable; checking in-process")
+                isolateLargeGraphChecks = false
+            }
+        }
+        if isolateLargeGraphChecks {
             if semanticPid < 0 {
                 println("    Error: semantic worker fork failed for: " +
                     modulePath)
@@ -13499,7 +13522,9 @@ fun writeObjectManifest(manifestPath: String, objectFiles: Array<String>,
     }
 
     let cwd = currentWorkingDir()
-    var content = ""
+    // One builder, not repeated concatenation: a large serial build reaches
+    // this point with its memory nearly spent (FEL-3110).
+    let content = StringBuilder.new()
     var i = 0
     while i < objectFiles.length() {
         var objectPath = objectFiles[i]
@@ -13530,10 +13555,13 @@ fun writeObjectManifest(manifestPath: String, objectFiles: Array<String>,
             if not isAbsolutePath(sourcePath) and
                 not prebuiltSourceProvenanceIsPortable(sourcePath) { return false }
         }
-        content = content + objectPath + "\t" + sourcePath + "\n"
+        content.append(objectPath)
+        content.append("\t")
+        content.append(sourcePath)
+        content.append("\n")
         i = i + 1
     }
-    return writeTextAtomically(manifestPath, content)
+    return writeTextAtomically(manifestPath, content.toString())
 }
 
 fun buildTargetClangArgs(target: String) r: String {
@@ -14331,6 +14359,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         boundedLargeProjectWorkers = g_largeProjectWorkerLimit
         boundedLargeProjectOptWorkers = g_largeProjectOptWorkerLimit
     }
+    if noForkSerialIsolationEnabled(modulePaths) {
+        boundedLargeProjectWorkers = 1
+    }
     if boundedLargeProjectWorkers > 0 {
         println("  Large project worker pool: IR " +
             boundedLargeProjectWorkers.toString() + " jobs, opt " +
@@ -14488,8 +14519,11 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if gpuBackendStatus != 0 {
         return gpuBackendStatus
     }
+    let genericAggregateStart = getTraceTimeSeconds()
     if not prepareGenericAggregateClasses(resolvedInput, modulePaths, language,
         generator) { return 1 }
+    buildTraceFinish("generic aggregate preparation", genericAggregateStart,
+        "ok", "modules=" + modulePaths.length().toString())
 
     // Optimization pipeline status
     if g_generatedTestMainMode == 0 {
@@ -14780,6 +14814,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             uncachedIdxStrs.push(moduleIndex.toString())
             uncachedSrcPaths.push(path)
             uncachedIrKeys.push(irCacheKey)
+            buildTraceEmit("module ir serial", "ok",
+                moduleEndTime - moduleStartTime,
+                "module=" + moduleIndex.toString())
         } else {
             ///
             Fork a child to generate IR for this module in parallel.
@@ -14790,6 +14827,14 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     moduleIndex + 1, modulePaths.length(), path)
             }
             let pid = processFork()
+            if pid < 0 and g_noFork == 1 and
+                forkPids.length() == forkWaitCursor {
+
+                // Nothing is outstanding; redo this module in-process.
+                println("    Note: IR worker fork unavailable; generating in-process")
+                pass2IrRunsParallel = false
+                continue
+            }
             if pid < 0 {
                 println("    Error: fork() failed for module " + moduleIndex.toString())
                 return 1

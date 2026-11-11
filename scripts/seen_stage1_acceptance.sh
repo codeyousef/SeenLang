@@ -491,6 +491,8 @@ COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_core_004e_deterministic_context.sh"
 COMPILER="$REAL_COMPILER" bash \
     "$REPO_ROOT/tests/misc_root_tests/seen_native_lto_features_contract.sh"
+COMPILER="$REAL_COMPILER" bash \
+    "$REPO_ROOT/tests/misc_root_tests/seen_no_fork_serial_memory_contract.sh"
 COMPILER="$REAL_COMPILER" \
     "$REPO_ROOT/tests/misc_root_tests/seen_v019_float_codegen_contract.sh"
 COMPILER="$REAL_COMPILER" \

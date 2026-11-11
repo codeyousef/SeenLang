@@ -7,6 +7,14 @@ extern "C" fun seen_pool_free(value: *Void, bytes: Int64) r: Void
 extern "C" fun seen_cstr_free(value: *Void) r: Void
 extern "C" fun seen_memory_release_bytes(bytes: Int64) r: Void
 extern "C" fun seen_aligned_buffer_free(value: *Void, bytes: Int64, alignment: Int64) r: Void
+extern "C" fun seen_memory_used_bytes() r: Int64
+extern "C" fun seen_memory_peak_bytes() r: Int64
+
+/// Live and peak runtime-accounted bytes, for build-trace phase events.
+fun compilerMemoryTraceDetail() r: String {
+    return "mem_used=" + (seen_memory_used_bytes() as Int).toString() +
+        " mem_peak=" + (seen_memory_peak_bytes() as Int).toString()
+}
 
 fun allocationOwnerFree(address: UInt64, bytes: Int64, kind: Int) r: Void {
     if kind < 0 { seen_aligned_buffer_free(address as *Void, bytes, (-kind) as Int64) }

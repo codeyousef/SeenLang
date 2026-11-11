@@ -840,13 +840,20 @@ static void seen_runtime_print_backtrace(void) {
 #if !defined(_WIN32) && !defined(__ANDROID__)
     void* frames[32];
     int count = backtrace(frames, 32);
-    char** symbols = backtrace_symbols(frames, count);
-    if (!symbols) return;
     fprintf(stderr, "Seen runtime backtrace (%d frames):\n", count);
-    for (int i = 0; i < count; i++) {
-        fprintf(stderr, "  %s\n", symbols[i]);
-    }
-    free(symbols);
+    fflush(stderr);
+    // Allocation failures land here with memory exhausted, so print without
+    // allocating; backtrace_symbols would need malloc.
+    backtrace_symbols_fd(frames, count, 2);
+#endif
+}
+
+// glibc loads the unwinder on the first backtrace() call. Do that at startup;
+// at an allocation failure the load itself fails and yields zero frames.
+static void seen_runtime_prime_backtrace(void) {
+#if !defined(_WIN32) && !defined(__ANDROID__)
+    void* frame[1];
+    (void)backtrace(frame, 1);
 #endif
 }
 
@@ -974,6 +981,7 @@ void seen_runtime_init(int argc, char** argv) {
     // Memory policy is read only after a valid snapshot exists. Deterministic
     // programs therefore never perform a second ambient-environment read.
     seen_memory_init_from_env_once();
+    seen_runtime_prime_backtrace();
 }
 
 // ============================================================================

@@ -651,6 +651,19 @@ Foundations**.
 
 ### Fixed
 
+- Serial `--no-fork` builds of large graphs no longer keep every module's AST
+  in the compiler (FEL-3110). The runtime does not collect ASTs, so Pass 1b and
+  Pass 2 IR generation now run each module in one isolated worker at a time;
+  `--no-fork` still never runs workers concurrently. A failed fork falls back
+  to in-process work. On HeartOn's 603 modules, peak memory drops from about
+  12 GB to about 5 GB. The object manifest is built in one buffer, an
+  allocation failure now prints a real backtrace, and build-trace events record
+  `mem_used` and `mem_peak`.
+- Native ThinLTO links pass LLD the host feature set clang detects, so VMs that
+  mask AVX-512 no longer receive zmm code and crash with SIGILL (FEL-748).
+- Add a regression test for Float array literals, which 0.22.12 lowered as
+  `Array_push(ptr, ptr 2.0)` (FEL-3111).
+
 - Windows programs that use `Result` or `Option` link again. The runtime's
   fallback `Ok`, `Err`, `Some`, `None` and `Result_*` helpers were strong symbols
   on every Windows toolchain and collided with the standard library's
