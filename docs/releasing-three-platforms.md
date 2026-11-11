@@ -20,7 +20,7 @@ success followed by optional uploads.
    the run ID. Resolve the branch from the version-bound policy:
 
    ```bash
-   VERSION=0.23.0 # Unreleased development target; not publication authorization.
+   VERSION=0.23.0
    SOURCE_BRANCH=$(python3 scripts/check_release_ci_run.py \
      --tag "v$VERSION" --source-branch)
    ```
