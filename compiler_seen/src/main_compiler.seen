@@ -264,7 +264,7 @@ import codegen.ir_autofree_state.{emitAutoFreeLocalsState}
 import codegen.ir_field_lookup_state.{getFieldInfoState, getFieldTypeState, getMethodReturnTypeState}
 import codegen.ir_generic_type_specialize.{specializeGenericTypeImpl}
 import codegen.ir_generic_call_type.{registerGenericCallTypeImpl, specializeGenericCallReturnImpl}
-import codegen.ir_generic_aggregate.{resetGenericAggregateSpecializationImpl, genericAggregateRegistryImpl, genericAggregateDemandsImpl, registerGenericAggregateDeclarationImpl, setGenericAggregateTrustedStdlibRootImpl}
+import codegen.ir_generic_aggregate.{resetGenericAggregateSpecializationImpl, genericAggregateRegistryImpl, genericAggregateDemandsImpl, registerGenericAggregateDeclarationImpl, setGenericAggregateTrustedStdlibRootImpl, genericAggregateDiscoveryEffectsImpl}
 import codegen.ir_generic_aggregate_visit.{visitGenericAggregateProgramImpl, instantiateGenericAggregateClassImpl, appendGenericAggregateClassesImpl}
 import codegen.ir_generic_aggregate_layout.{registerGenericAggregateLayoutsImpl}
 // Older bootstrap compilers seed helper declarations from direct CLI imports.
@@ -8133,6 +8133,86 @@ fun prepareCompilerModuleFunctionIdentity(inputFile: String,
         semanticNormalizeModuleIdentity(nativeIdentity), nativeIdentity)
 }
 
+// How the last generic discovery chose its modules, for the build trace.
+var g_genericDiscoveryMode: String = "in-process"
+
+// Generic discovery fully parses every module, yet only generic bodies, uses
+// and demands outlive the visit, and the runtime never frees the rest of the
+// AST (FEL-3112). On large graphs, run discovery once in a forked worker that
+// reports which modules change generic lowering state; the parent reparses
+// only those. A module whose visit has no effect leaves the state unchanged,
+// so skipping it is exact. Returns one 0/1 flag per module (all 1 when the scan
+// is unavailable), or an empty array after the worker reported an error.
+fun genericAggregateDiscoveryModules(inputFile: String,
+    modulePaths: Array<String>, language: String) r: Array<Int> {
+    g_genericDiscoveryMode = "in-process"
+    let flags = Array<Int>()
+    var i = 0
+    while i < modulePaths.length() {
+        flags.push(1)
+        i = i + 1
+    }
+    if modulePaths.length() <= 48 or
+        moduleGraphContainsCompilerSources(modulePaths) { return flags }
+    let resultPath = compilerArtifactPath("seen_generic_discovery_" +
+        getPid().toString() + ".flags")
+    if resultPath == "" {
+        g_genericDiscoveryMode = "no-artifact-root"
+        return flags
+    }
+    let pid = processFork()
+    if pid < 0 {
+        g_genericDiscoveryMode = "fork-failed"
+        return flags
+    }
+    if pid == 0 {
+        let marks = StringBuilder.new()
+        var m = 0
+        while m < modulePaths.length() {
+            let path = modulePaths[m]
+            var mark = "0"
+            if not isPrebuiltPackageModulePathForInput(inputFile, path) {
+                let frontend = parseModule(path, language)
+                if not frontend.success {
+                    printFrontendDiagnostics(frontend)
+                    processExit(1)
+                }
+                let before = genericAggregateDiscoveryEffectsImpl()
+                visitGenericAggregateProgramImpl(frontend.program,
+                    lexicalSemanticModuleIdentity(path), true)
+                if genericAggregateDiscoveryEffectsImpl() != before { mark = "1" }
+            }
+            marks.append(mark)
+            m = m + 1
+        }
+        if not writeTextAtomically(resultPath, marks.toString()) { processExit(2) }
+        processExit(0)
+    }
+    let status = waitPid(pid)
+    // Exit 1 is a parse or discovery error the worker already printed.
+    if status == 1 {
+        deleteFile(resultPath)
+        return Array<Int>()
+    }
+    if status != 0 or not exists(resultPath) {
+        g_genericDiscoveryMode = "worker-status-" + status.toString()
+        return flags
+    }
+    let marks = loadFileContent(resultPath)
+    deleteFile(resultPath)
+    if marks.length() != modulePaths.length() {
+        g_genericDiscoveryMode = "worker-result-invalid"
+        return flags
+    }
+    g_genericDiscoveryMode = "worker"
+    i = 0
+    while i < modulePaths.length() {
+        if marks.substring(i, i + 1) != "1" { flags[i] = 0 }
+        i = i + 1
+    }
+    return flags
+}
+
 fun prepareGenericAggregateClasses(inputFile: String,
     modulePaths: Array<String>, language: String,
     generator: LLVMIRGenerator) r: Bool {
@@ -8141,10 +8221,17 @@ fun prepareGenericAggregateClasses(inputFile: String,
     // Semantic validation sees the original source. Only the lowering AST is
     // specialized, and every native declaration is registered after demands
     // close so no erased metadata can win by module discovery order.
+    let discoveryStart = getTraceTimeSeconds()
+    let discoveryModules = genericAggregateDiscoveryModules(inputFile,
+        modulePaths, language)
+    if discoveryModules.length() != modulePaths.length() { return false }
+    var discoveryReparsed = 0
     var i = 0
     while i < modulePaths.length() {
         let path = modulePaths[i]
-        if not isPrebuiltPackageModulePathForInput(inputFile, path) {
+        if discoveryModules[i] != 0 and
+            not isPrebuiltPackageModulePathForInput(inputFile, path) {
+            discoveryReparsed = discoveryReparsed + 1
             let frontend = parseModule(path, language)
             if not frontend.success { printFrontendDiagnostics(frontend); return false }
             visitGenericAggregateProgramImpl(frontend.program,
@@ -8152,6 +8239,11 @@ fun prepareGenericAggregateClasses(inputFile: String,
         }
         i = i + 1
     }
+    buildTraceFinish("generic aggregate discovery", discoveryStart, "ok",
+        "mode=" + g_genericDiscoveryMode + " reparsed=" +
+        discoveryReparsed.toString() + " modules=" +
+        modulePaths.length().toString())
+    let instantiationStart = getTraceTimeSeconds()
     i = 0
     while i < genericAggregateDemandsImpl().length() {
         let demand = genericAggregateDemandsImpl()[i]
@@ -8179,6 +8271,8 @@ fun prepareGenericAggregateClasses(inputFile: String,
     }
     if not validateGenericAggregateFunctionUsesImpl() { return false }
     let demands = genericAggregateDemandsImpl()
+    buildTraceFinish("generic aggregate instantiation", instantiationStart,
+        "ok", "demands=" + demands.length().toString())
     // All demands, including those reached through instantiated method bodies,
     // now exist. Register ABI markers before any enclosing concrete layout.
     i = 0

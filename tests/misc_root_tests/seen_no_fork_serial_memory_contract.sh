@@ -1,9 +1,11 @@
 #!/usr/bin/env bash
-# FEL-3110: a serial (--no-fork) build of a large graph must not keep every
-# module's AST in the compiler process. The runtime never collects ASTs, so
-# Pass 1b and Pass 2 run each module in one isolated worker at a time; the
-# parent's live bytes across IR generation must stay flat, and the object
-# manifest must be written.
+# FEL-3110/FEL-3112: a serial (--no-fork) build of a large graph must not keep
+# every module's AST in the compiler process. The runtime never collects ASTs,
+# so Pass 1b and Pass 2 run each module in one isolated worker at a time, and
+# generic discovery runs in a forked pre-scan so the parent reparses only the
+# modules that use generic lowering. The parent's live bytes across generic
+# preparation and IR generation must stay flat, generics spread across modules
+# must still lower correctly, and the object manifest must be written.
 set -euo pipefail
 
 ROOT_DIR="$(cd -P -- "${BASH_SOURCE[0]%/*}/../.." && pwd -P)"
@@ -55,6 +57,8 @@ mkdir -p "$PROJECT/src/parts" "$PROJECT/tests"
     for index in $(seq 0 $((MODULES - 1))); do
         printf '    "src/parts/part_%02d.seen",\n' "$index"
     done
+    echo '    "src/generic_box.seen",'
+    echo '    "src/generic_user.seen",'
     echo ']'
     echo
     echo '[build]'
@@ -86,7 +90,33 @@ for index in $(seq 0 $((MODULES - 1))); do
     } >"$PROJECT/src/parts/part_$(printf '%02d' "$index").seen"
 done
 
+# Generic class and function defined in one module and specialized from
+# another: the pre-scan must keep both modules for the parent's discovery.
+cat >"$PROJECT/src/generic_box.seen" <<'SEEN'
+class GenericBox<T> {
+    var value: T
+    fun read() r: T { return this.value }
+}
+
+pub fun pickSecond<T>(first: T, second: T) r: T {
+    return second
+}
+SEEN
+cat >"$PROJECT/src/generic_user.seen" <<'SEEN'
+import serial_fixture.generic_box.{GenericBox, pickSecond}
+
+class Pair { var left: Int }
+
+pub fun genericTotal() r: Int {
+    let box = GenericBox<Int>{value: 40}
+    let pair = GenericBox<Pair>{value: Pair{left: 2}}
+    let total = box.read() + pair.read().left
+    return pickSecond<Int>(0, total)
+}
+SEEN
+
 {
+    echo 'import serial_fixture.generic_user.{genericTotal}'
     for index in $(seq 0 $((MODULES - 1))); do
         printf 'import serial_fixture.parts.part_%02d.{part%02d}\n' \
             "$index" "$index"
@@ -98,6 +128,7 @@ done
         printf '    total = total + part%02d()\n' "$index"
     done
     echo '    if total < 0 { return 1 }'
+    echo '    if genericTotal() != 42 { return 3 }'
     echo '    return 0'
     echo '}'
 } >"$PROJECT/tests/main.seen"
@@ -122,13 +153,45 @@ manifest_parts=$(grep -c '/src/parts/part_' "$MANIFEST" || true)
 [ "$manifest_parts" -eq "$MODULES" ] ||
     fail "object manifest lists $manifest_parts of $MODULES project modules"
 
+# Object-manifest mode leaves linking to the caller, so link a second serial
+# build to prove generics spread across modules still lower correctly.
+(
+    cd "$PROJECT"
+    bash "$ATTESTED_SEEN" "$COMPILER" compile tests/main.seen \
+        "$WORK_DIR/program" --fast --no-cache --no-fork --frozen \
+        >"$WORK_DIR/link.log" 2>&1
+) || { tail -n 40 "$WORK_DIR/link.log" >&2; fail "linked serial compile failed"; }
+program_status=0
+"$WORK_DIR/program" || program_status=$?
+[ "$program_status" -eq 0 ] ||
+    fail "serial program exited $program_status (3 means generic lowering is wrong)"
+
+discovery=$(grep -F '"phase":"generic aggregate discovery"' "$TRACE" | tail -n 1)
+case "$discovery" in
+    *mode=worker*) ;;
+    *) fail "generic discovery did not use the forked pre-scan: $discovery" ;;
+esac
+reparsed=$(printf '%s\n' "$discovery" | sed -n 's/.*reparsed=\([0-9][0-9]*\).*/\1/p')
+[ -n "$reparsed" ] && [ "$reparsed" -lt 16 ] ||
+    fail "generic discovery reparsed ${reparsed:-?} modules; expected only generic users"
+
 phase_used() {
     sed -n "s/.*\"phase\":\"$1\".*mem_used=\([0-9][0-9]*\).*/\1/p" "$TRACE" |
         tail -n 1
 }
+checked=$(phase_used 'lexical semantic check')
+discovered=$(phase_used 'generic aggregate discovery')
 before=$(phase_used 'generic aggregate preparation')
 after=$(phase_used 'ir generation and object cache')
-[ -n "$before" ] && [ -n "$after" ] || fail "build trace lacks phase memory"
+[ -n "$checked" ] && [ -n "$discovered" ] && [ -n "$before" ] &&
+    [ -n "$after" ] || fail "build trace lacks phase memory"
+generic_growth=$((discovered - checked))
+# Reparsing every full body in the parent retained about 210 MiB here; the
+# pre-scan leaves under 1 MiB. Declaration registration after discovery is
+# needed by code generation and is not covered by this limit.
+generic_limit=$((16 * 1024 * 1024))
+[ "$generic_growth" -le "$generic_limit" ] ||
+    fail "parent grew $generic_growth bytes in generic discovery (limit $generic_limit)"
 growth=$((after - before))
 # In-process generation retained every module AST: about 1.4 GiB of parent
 # growth for this fixture. One worker per module leaves about 20 MiB.
@@ -136,4 +199,4 @@ limit=$((64 * 1024 * 1024))
 [ "$growth" -le "$limit" ] ||
     fail "parent grew $growth bytes across IR generation (limit $limit)"
 
-echo "PASS: FEL-3110 no-fork serial build keeps parent memory flat ($growth bytes over $MODULES modules)"
+echo "PASS: FEL-3110/FEL-3112 no-fork serial build keeps parent memory flat (generic $generic_growth, IR $growth bytes over $MODULES modules)"
