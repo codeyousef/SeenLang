@@ -142,8 +142,12 @@ printf '%s\n' "$graph_builder" | grep -Fq 'appendSourceTextImportEdges' ||
 semantic_validator=$(sed -n '/fun validateLexicalSemanticModulePaths/,/^}/p' \
     "$ENTRY")
 printf '%s\n' "$semantic_validator" | grep -Fq \
-    'modulePaths.length() > 48 and g_noFork == 0' ||
+    'modulePaths.length() > 48 and' ||
     fail "large semantic validation does not select isolated workers"
+# FEL-3110: --no-fork keeps isolation, serially, outside compiler self-builds.
+printf '%s\n' "$semantic_validator" | grep -Fq \
+    '(g_noFork == 0 or noForkSerialIsolationEnabled(modulePaths))' ||
+    fail "serial --no-fork semantic validation retains reparsed ASTs"
 printf '%s\n' "$semantic_validator" | grep -Fq 'processFork()' ||
     fail "large semantic validation retains reparsed ASTs in the parent"
 printf '%s\n' "$semantic_validator" | grep -Fq 'waitPid(semanticPid)' ||

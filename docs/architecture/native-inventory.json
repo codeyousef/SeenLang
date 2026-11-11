@@ -5910,6 +5910,13 @@
     },
     {
       "name": "seen_memory_peak_bytes",
+      "abi": "C",
+      "sources": [
+        "compiler_seen/src/bootstrap/allocation_owner.seen"
+      ]
+    },
+    {
+      "name": "seen_memory_peak_bytes",
       "abi": "Seen",
       "sources": [
         "seen_std/src/memory/allocation.seen"
@@ -5949,6 +5956,13 @@
       "abi": "C",
       "sources": [
         "seen_std/src/memory/allocation.seen"
+      ]
+    },
+    {
+      "name": "seen_memory_used_bytes",
+      "abi": "C",
+      "sources": [
+        "compiler_seen/src/bootstrap/allocation_owner.seen"
       ]
     },
     {

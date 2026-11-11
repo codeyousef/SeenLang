@@ -52,6 +52,7 @@ BOOL_HELPER_LOGICAL_SRC="$ROOT_DIR/tests/codegen/test_bool_helper_logical_regres
 STRING_VAR_INIT_CONCAT_SRC="$ROOT_DIR/tests/codegen/test_string_var_initializer_concat_regression.seen"
 FLOAT32_PTR_DEREF_CAST_SRC="$ROOT_DIR/tests/codegen/test_float32_ptr_deref_cast_regression.seen"
 FLOAT_INT64_CAST_SRC="$ROOT_DIR/tests/codegen/test_float_int64_cast_regression.seen"
+FLOAT_ARRAY_LITERAL_SRC="$ROOT_DIR/tests/codegen/test_float_array_literal_regression.seen"
 NESTED_PROPERTY_RECEIVER_SRC="$ROOT_DIR/tests/codegen/test_nested_property_receiver_regression.seen"
 FEL22_TYPED_STORE_RETURN_SRC="$ROOT_DIR/tests/codegen/test_fel22_typed_store_return_regression.seen"
 PTR_I64_ALIAS_SRC="$ROOT_DIR/tests/codegen/test_ptr_i64_alias_regression.seen"
@@ -2126,6 +2127,7 @@ run_success_case "Bool helper logical conditions stay verifier-clean" "$BOOL_HEL
 run_success_case "string local initializer survives nested concat rewrite" "$STRING_VAR_INIT_CONCAT_SRC" "$TMP_ROOT/string_var_init_concat" "$TMP_ROOT/string_var_init_concat.log"
 run_success_case "Float32 pointer deref casts directly to Int" "$FLOAT32_PTR_DEREF_CAST_SRC" "$TMP_ROOT/float32_ptr_deref_cast" "$TMP_ROOT/float32_ptr_deref_cast.log"
 run_success_case "signed-64 aliases preserve floating truncation and typed stores" "$FLOAT_INT64_CAST_SRC" "$TMP_ROOT/float_int64_cast" "$TMP_ROOT/float_int64_cast.log"
+run_success_case "FEL-3111 Float array literals store Float elements" "$FLOAT_ARRAY_LITERAL_SRC" "$TMP_ROOT/float_array_literal" "$TMP_ROOT/float_array_literal.log"
 run_success_case_with_ir_check "nested property method receivers preserve object pointer" "$NESTED_PROPERTY_RECEIVER_SRC" "$TMP_ROOT/nested_property_receiver" "$TMP_ROOT/nested_property_receiver.log" 'call void @PropertyRegistry_registerFloat' '= call i64 @PropertyRegistry_registerFloat'
 run_success_case "FEL-22 typed stores and Float returns stay verifier-clean" "$FEL22_TYPED_STORE_RETURN_SRC" "$TMP_ROOT/fel22_typed_store_return" "$TMP_ROOT/fel22_typed_store_return.log"
 run_success_case "ptr_deref_i64 and ptr_store_i64 lower to runtime builtins" "$PTR_I64_ALIAS_SRC" "$TMP_ROOT/ptr_i64_alias" "$TMP_ROOT/ptr_i64_alias.log"

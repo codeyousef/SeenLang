@@ -207,7 +207,7 @@ import codegen.gpu_lower_context.{GpuLowerContext as _seedGpuLowerContext}
 import codegen.gpu_lower_values.{gpuLowerLiteral as _seedGpuLowerValues}
 import codegen.gpu_lower_program.{lowerGpuProgram as _seedLowerGpuProgram}
 import codegen.gpu_source.{lowerGpuSource as _seedLowerGpuSource}
-import bootstrap.allocation_owner.{FrontendAllocationOwner as _seedFrontendAllocationOwner}
+import bootstrap.allocation_owner.{FrontendAllocationOwner as _seedFrontendAllocationOwner, compilerMemoryTraceDetail}
 import bootstrap.owned_frontend.{OwnedFrontend as _seedOwnedFrontend}
 import typechecker.gpu_module_frontend.{gpuCheckModule as _seedGpuCheckModule}
 import release.compatibility.{CompatibilityManifest as _seedCompatibilityManifest,
@@ -264,7 +264,7 @@ import codegen.ir_autofree_state.{emitAutoFreeLocalsState}
 import codegen.ir_field_lookup_state.{getFieldInfoState, getFieldTypeState, getMethodReturnTypeState}
 import codegen.ir_generic_type_specialize.{specializeGenericTypeImpl}
 import codegen.ir_generic_call_type.{registerGenericCallTypeImpl, specializeGenericCallReturnImpl}
-import codegen.ir_generic_aggregate.{resetGenericAggregateSpecializationImpl, genericAggregateRegistryImpl, genericAggregateDemandsImpl, registerGenericAggregateDeclarationImpl, setGenericAggregateTrustedStdlibRootImpl}
+import codegen.ir_generic_aggregate.{resetGenericAggregateSpecializationImpl, genericAggregateRegistryImpl, genericAggregateDemandsImpl, registerGenericAggregateDeclarationImpl, setGenericAggregateTrustedStdlibRootImpl, genericAggregateDiscoveryEffectsImpl}
 import codegen.ir_generic_aggregate_visit.{visitGenericAggregateProgramImpl, instantiateGenericAggregateClassImpl, appendGenericAggregateClassesImpl}
 import codegen.ir_generic_aggregate_layout.{registerGenericAggregateLayoutsImpl}
 // Older bootstrap compilers seed helper declarations from direct CLI imports.
@@ -1276,7 +1276,9 @@ fun buildTraceEmit(phase: String, status: String, durationMs: Int, detail: Strin
         "," + q + "status" + q + ":" + q + buildTraceJsonEscape(status) + q +
         "," + q + "duration_ms" + q + ":" +
         durationMs.toString() +
-        "," + q + "detail" + q + ":" + q + buildTraceJsonEscape(detail) + q + "}\n"
+        "," + q + "detail" + q + ":" + q +
+        buildTraceJsonEscape(detail + " " + compilerMemoryTraceDetail()) +
+        q + "}\n"
     let _ = appendText(tracePath, line)
     return
 }
@@ -8131,6 +8133,86 @@ fun prepareCompilerModuleFunctionIdentity(inputFile: String,
         semanticNormalizeModuleIdentity(nativeIdentity), nativeIdentity)
 }
 
+// How the last generic discovery chose its modules, for the build trace.
+var g_genericDiscoveryMode: String = "in-process"
+
+// Generic discovery fully parses every module, yet only generic bodies, uses
+// and demands outlive the visit, and the runtime never frees the rest of the
+// AST (FEL-3112). On large graphs, run discovery once in a forked worker that
+// reports which modules change generic lowering state; the parent reparses
+// only those. A module whose visit has no effect leaves the state unchanged,
+// so skipping it is exact. Returns one 0/1 flag per module (all 1 when the scan
+// is unavailable), or an empty array after the worker reported an error.
+fun genericAggregateDiscoveryModules(inputFile: String,
+    modulePaths: Array<String>, language: String) r: Array<Int> {
+    g_genericDiscoveryMode = "in-process"
+    let flags = Array<Int>()
+    var i = 0
+    while i < modulePaths.length() {
+        flags.push(1)
+        i = i + 1
+    }
+    if modulePaths.length() <= 48 or
+        moduleGraphContainsCompilerSources(modulePaths) { return flags }
+    let resultPath = compilerArtifactPath("seen_generic_discovery_" +
+        getPid().toString() + ".flags")
+    if resultPath == "" {
+        g_genericDiscoveryMode = "no-artifact-root"
+        return flags
+    }
+    let pid = processFork()
+    if pid < 0 {
+        g_genericDiscoveryMode = "fork-failed"
+        return flags
+    }
+    if pid == 0 {
+        let marks = StringBuilder.new()
+        var m = 0
+        while m < modulePaths.length() {
+            let path = modulePaths[m]
+            var mark = "0"
+            if not isPrebuiltPackageModulePathForInput(inputFile, path) {
+                let frontend = parseModule(path, language)
+                if not frontend.success {
+                    printFrontendDiagnostics(frontend)
+                    processExit(1)
+                }
+                let before = genericAggregateDiscoveryEffectsImpl()
+                visitGenericAggregateProgramImpl(frontend.program,
+                    lexicalSemanticModuleIdentity(path), true)
+                if genericAggregateDiscoveryEffectsImpl() != before { mark = "1" }
+            }
+            marks.append(mark)
+            m = m + 1
+        }
+        if not writeTextAtomically(resultPath, marks.toString()) { processExit(2) }
+        processExit(0)
+    }
+    let status = waitPid(pid)
+    // Exit 1 is a parse or discovery error the worker already printed.
+    if status == 1 {
+        deleteFile(resultPath)
+        return Array<Int>()
+    }
+    if status != 0 or not exists(resultPath) {
+        g_genericDiscoveryMode = "worker-status-" + status.toString()
+        return flags
+    }
+    let marks = loadFileContent(resultPath)
+    deleteFile(resultPath)
+    if marks.length() != modulePaths.length() {
+        g_genericDiscoveryMode = "worker-result-invalid"
+        return flags
+    }
+    g_genericDiscoveryMode = "worker"
+    i = 0
+    while i < modulePaths.length() {
+        if marks.substring(i, i + 1) != "1" { flags[i] = 0 }
+        i = i + 1
+    }
+    return flags
+}
+
 fun prepareGenericAggregateClasses(inputFile: String,
     modulePaths: Array<String>, language: String,
     generator: LLVMIRGenerator) r: Bool {
@@ -8139,10 +8221,17 @@ fun prepareGenericAggregateClasses(inputFile: String,
     // Semantic validation sees the original source. Only the lowering AST is
     // specialized, and every native declaration is registered after demands
     // close so no erased metadata can win by module discovery order.
+    let discoveryStart = getTraceTimeSeconds()
+    let discoveryModules = genericAggregateDiscoveryModules(inputFile,
+        modulePaths, language)
+    if discoveryModules.length() != modulePaths.length() { return false }
+    var discoveryReparsed = 0
     var i = 0
     while i < modulePaths.length() {
         let path = modulePaths[i]
-        if not isPrebuiltPackageModulePathForInput(inputFile, path) {
+        if discoveryModules[i] != 0 and
+            not isPrebuiltPackageModulePathForInput(inputFile, path) {
+            discoveryReparsed = discoveryReparsed + 1
             let frontend = parseModule(path, language)
             if not frontend.success { printFrontendDiagnostics(frontend); return false }
             visitGenericAggregateProgramImpl(frontend.program,
@@ -8150,6 +8239,11 @@ fun prepareGenericAggregateClasses(inputFile: String,
         }
         i = i + 1
     }
+    buildTraceFinish("generic aggregate discovery", discoveryStart, "ok",
+        "mode=" + g_genericDiscoveryMode + " reparsed=" +
+        discoveryReparsed.toString() + " modules=" +
+        modulePaths.length().toString())
+    let instantiationStart = getTraceTimeSeconds()
     i = 0
     while i < genericAggregateDemandsImpl().length() {
         let demand = genericAggregateDemandsImpl()[i]
@@ -8177,6 +8271,8 @@ fun prepareGenericAggregateClasses(inputFile: String,
     }
     if not validateGenericAggregateFunctionUsesImpl() { return false }
     let demands = genericAggregateDemandsImpl()
+    buildTraceFinish("generic aggregate instantiation", instantiationStart,
+        "ok", "demands=" + demands.length().toString())
     // All demands, including those reached through instantiated method bodies,
     // now exist. Register ABI markers before any enclosing concrete layout.
     i = 0
@@ -8247,6 +8343,19 @@ fun checkResolvedLexicalSemanticModule(frontend: FrontendResult,
 }
 
 ///
+--no-fork forbids concurrent workers, not isolation. The runtime never collects
+an AST, so a large serial build that parses every module in this process keeps
+all of them until exit (FEL-3110). Run each module's parse in one forked worker
+at a time instead; a failed fork falls back to in-process work, which covers
+Windows, iOS and tight task caps. Compiler self-builds keep their in-process
+path so bootstrap stages are unchanged.
+///
+fun noForkSerialIsolationEnabled(modulePaths: Array<String>) r: Bool {
+    return g_noFork == 1 and modulePaths.length() > 48 and
+        not moduleGraphContainsCompilerSources(modulePaths)
+}
+
+///
 Run the full-body half of the lexical semantic gate over a complete module
 graph. No LLVM generator or codegen state is created here, so the check command can
 share the exact compile validation path without entering lowering.
@@ -8261,7 +8370,8 @@ fun validateLexicalSemanticModulePaths(modulePaths: Array<String>,
     // Isolate one read-only semantic check at a time: fork preserves the
     // complete declaration registry through copy-on-write, waitPid keeps the
     // worker count bounded, and process exit releases the module AST.
-    let isolateLargeGraphChecks = modulePaths.length() > 48 and g_noFork == 0
+    var isolateLargeGraphChecks = modulePaths.length() > 48 and
+        (g_noFork == 0 or noForkSerialIsolationEnabled(modulePaths))
     var moduleIndex = 0
     while moduleIndex < modulePaths.length() {
         let modulePath = modulePaths[moduleIndex]
@@ -8269,8 +8379,15 @@ fun validateLexicalSemanticModulePaths(modulePaths: Array<String>,
             printCompileProgress("Pass 1b", "checking semantics",
                 moduleIndex + 1, modulePaths.length(), modulePath)
         }
+        var semanticPid = -1
         if isolateLargeGraphChecks {
-            let semanticPid = processFork()
+            semanticPid = processFork()
+            if semanticPid < 0 and g_noFork == 1 {
+                println("    Note: semantic worker fork unavailable; checking in-process")
+                isolateLargeGraphChecks = false
+            }
+        }
+        if isolateLargeGraphChecks {
             if semanticPid < 0 {
                 println("    Error: semantic worker fork failed for: " +
                     modulePath)
@@ -13499,7 +13616,9 @@ fun writeObjectManifest(manifestPath: String, objectFiles: Array<String>,
     }
 
     let cwd = currentWorkingDir()
-    var content = ""
+    // One builder, not repeated concatenation: a large serial build reaches
+    // this point with its memory nearly spent (FEL-3110).
+    let content = StringBuilder.new()
     var i = 0
     while i < objectFiles.length() {
         var objectPath = objectFiles[i]
@@ -13530,10 +13649,13 @@ fun writeObjectManifest(manifestPath: String, objectFiles: Array<String>,
             if not isAbsolutePath(sourcePath) and
                 not prebuiltSourceProvenanceIsPortable(sourcePath) { return false }
         }
-        content = content + objectPath + "\t" + sourcePath + "\n"
+        content.append(objectPath)
+        content.append("\t")
+        content.append(sourcePath)
+        content.append("\n")
         i = i + 1
     }
-    return writeTextAtomically(manifestPath, content)
+    return writeTextAtomically(manifestPath, content.toString())
 }
 
 fun buildTargetClangArgs(target: String) r: String {
@@ -14331,6 +14453,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
         boundedLargeProjectWorkers = g_largeProjectWorkerLimit
         boundedLargeProjectOptWorkers = g_largeProjectOptWorkerLimit
     }
+    if noForkSerialIsolationEnabled(modulePaths) {
+        boundedLargeProjectWorkers = 1
+    }
     if boundedLargeProjectWorkers > 0 {
         println("  Large project worker pool: IR " +
             boundedLargeProjectWorkers.toString() + " jobs, opt " +
@@ -14488,8 +14613,11 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
     if gpuBackendStatus != 0 {
         return gpuBackendStatus
     }
+    let genericAggregateStart = getTraceTimeSeconds()
     if not prepareGenericAggregateClasses(resolvedInput, modulePaths, language,
         generator) { return 1 }
+    buildTraceFinish("generic aggregate preparation", genericAggregateStart,
+        "ok", "modules=" + modulePaths.length().toString())
 
     // Optimization pipeline status
     if g_generatedTestMainMode == 0 {
@@ -14780,6 +14908,9 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
             uncachedIdxStrs.push(moduleIndex.toString())
             uncachedSrcPaths.push(path)
             uncachedIrKeys.push(irCacheKey)
+            buildTraceEmit("module ir serial", "ok",
+                moduleEndTime - moduleStartTime,
+                "module=" + moduleIndex.toString())
         } else {
             ///
             Fork a child to generate IR for this module in parallel.
@@ -14790,6 +14921,14 @@ fun compileCommandWithAllOptions(inputFile: String, outputFile: String, profile:
                     moduleIndex + 1, modulePaths.length(), path)
             }
             let pid = processFork()
+            if pid < 0 and g_noFork == 1 and
+                forkPids.length() == forkWaitCursor {
+
+                // Nothing is outstanding; redo this module in-process.
+                println("    Note: IR worker fork unavailable; generating in-process")
+                pass2IrRunsParallel = false
+                continue
+            }
             if pid < 0 {
                 println("    Error: fork() failed for module " + moduleIndex.toString())
                 return 1

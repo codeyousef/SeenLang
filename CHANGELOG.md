@@ -5,7 +5,7 @@ All notable changes to the Seen compiler will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.23.0] - Unreleased
+## [0.23.0] - 2026-11-11
 
 This release contains milestone **00 — Gate 0 Toolchain and Accelerator
 Foundations**.
@@ -650,6 +650,25 @@ Foundations**.
   until their separate verification is completed.
 
 ### Fixed
+
+- Serial `--no-fork` builds of large graphs no longer keep every module's AST
+  in the compiler (FEL-3110). The runtime does not collect ASTs, so Pass 1b and
+  Pass 2 IR generation now run each module in one isolated worker at a time;
+  `--no-fork` still never runs workers concurrently. A failed fork falls back
+  to in-process work. On HeartOn's 603 modules, peak memory drops from about
+  12 GB to about 5 GB. The object manifest is built in one buffer, an
+  allocation failure now prints a real backtrace, and build-trace events record
+  `mem_used` and `mem_peak`.
+- Generic discovery no longer parses every module in the compiler process
+  (FEL-3112). On large graphs a forked pre-scan reports which modules use
+  generic lowering and only those are reparsed. On HeartOn's 603 modules the
+  compiler reparses 5, and peak memory for a serial build drops from about
+  5.0 GB to about 4.2 GB. Build-trace events now report generic discovery and
+  instantiation separately.
+- Native ThinLTO links pass LLD the host feature set clang detects, so VMs that
+  mask AVX-512 no longer receive zmm code and crash with SIGILL (FEL-748).
+- Add a regression test for Float array literals, which 0.22.12 lowered as
+  `Array_push(ptr, ptr 2.0)` (FEL-3111).
 
 - Windows programs that use `Result` or `Option` link again. The runtime's
   fallback `Ok`, `Err`, `Some`, `None` and `Result_*` helpers were strong symbols

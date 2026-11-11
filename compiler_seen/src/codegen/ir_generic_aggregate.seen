@@ -49,6 +49,10 @@ var g_genericAggregateRegistry: SemanticDeclarationRegistry = SemanticDeclaratio
 var g_genericAggregateDemands: Array<GenericAggregateDemand> = Array<GenericAggregateDemand>()
 var g_genericAggregateOpenParameters: Array<String> = Array<String>()
 var g_genericAggregateTrustedStdlibRoot: String = ""
+// Counts discovery effects: recorded generic bodies and new uses or demands.
+// A module whose discovery visit leaves this unchanged contributes nothing, so
+// a forked pre-scan can let the parent skip reparsing it (FEL-3112).
+var g_genericAggregateDiscoveryEffects: Int = 0
 
 fun setGenericAggregateTrustedStdlibRootImpl(root: String) r: Void {
     g_genericAggregateTrustedStdlibRoot = root
@@ -63,6 +67,11 @@ fun resetGenericAggregateSpecializationImpl() r: Void {
     g_genericAggregateClassDefinitions = Array<ClassNode>()
     g_genericAggregateClassOwners = Array<String>()
     g_genericAggregateTrustedStdlibRoot = ""
+    g_genericAggregateDiscoveryEffects = 0
+}
+
+fun genericAggregateDiscoveryEffectsImpl() r: Int {
+    return g_genericAggregateDiscoveryEffects
 }
 
 fun genericAggregateRegistryImpl() r: SemanticDeclarationRegistry {
@@ -82,6 +91,7 @@ fun recordGenericAggregateFunctionBodyImpl(function: FunctionNode,
         if definition.owner == owner {
             definition.declaration = function
             definition.hasBody = not function.isExtern
+            g_genericAggregateDiscoveryEffects = g_genericAggregateDiscoveryEffects + 1
             return
         }
         i = i + 1
@@ -128,6 +138,7 @@ fun recordGenericAggregateFunctionUseImpl(reference: TypeRef,
     emptyNames.free()
     emptyValues.free()
     let index = g_genericAggregateFunctionUses.length()
+    g_genericAggregateDiscoveryEffects = g_genericAggregateDiscoveryEffects + 1
     g_genericAggregateFunctionUses.push(GenericAggregateFunctionUse{key: key,
         definition: definition, arguments: arguments, validated: false})
     return index
@@ -550,6 +561,7 @@ fun rewriteGenericAggregateRefImpl(typeRef: TypeRef, moduleName: String,
         emptyNames.free()
         emptyValues.free()
         found = g_genericAggregateDemands.length()
+        g_genericAggregateDiscoveryEffects = g_genericAggregateDiscoveryEffects + 1
         g_genericAggregateDemands.push(GenericAggregateDemand{key: key,
             name: moduleFunctionNamespaceImpl("hosted/aggregate/" + key),
             owner: g_genericAggregateRegistry.modules[index],
