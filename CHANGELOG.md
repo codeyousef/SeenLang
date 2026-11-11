@@ -659,6 +659,12 @@ Foundations**.
   12 GB to about 5 GB. The object manifest is built in one buffer, an
   allocation failure now prints a real backtrace, and build-trace events record
   `mem_used` and `mem_peak`.
+- Generic discovery no longer parses every module in the compiler process
+  (FEL-3112). On large graphs a forked pre-scan reports which modules use
+  generic lowering and only those are reparsed. On HeartOn's 603 modules the
+  compiler reparses 5, and peak memory for a serial build drops from about
+  5.0 GB to about 4.2 GB. Build-trace events now report generic discovery and
+  instantiation separately.
 - Native ThinLTO links pass LLD the host feature set clang detects, so VMs that
   mask AVX-512 no longer receive zmm code and crash with SIGILL (FEL-748).
 - Add a regression test for Float array literals, which 0.22.12 lowered as
